@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { X, Check, Shield, Lock, LogOut, User, RefreshCw } from 'lucide-react';
+import { X, Check, Shield, Lock, LogOut, User, RefreshCw, Key, AlertCircle } from 'lucide-react';
+import { requestGoogleAccessToken } from '../lib/googleDriveApi';
+import { signInWithGoogleFirebase } from '../lib/firebaseAuth';
 
 export interface UserProfile {
   name: string;
@@ -8,6 +10,7 @@ export interface UserProfile {
   isLoggedIn: boolean;
   loginTime?: string;
   scopes?: string[];
+  accessToken?: string;
 }
 
 interface GoogleAuthModalProps {
@@ -28,37 +31,92 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   language,
 }) => {
   const [isLoading, setIsLoading] = useState(false);
-  const [loginStep, setLoginStep] = useState<'IDLE' | 'AUTHING' | 'SUCCESS'>('IDLE');
+  const [manualTokenInput, setManualTokenInput] = useState('');
+  const [showManualInput, setShowManualInput] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
 
   useEffect(() => {
     if (!isOpen) {
-      setLoginStep('IDLE');
       setIsLoading(false);
+      setAuthError(null);
     }
   }, [isOpen]);
 
   if (!isOpen) return null;
 
-  const handleSimulateGoogleLogin = () => {
+  const handleRealGoogleOAuth = async () => {
     setIsLoading(true);
-    setLoginStep('AUTHING');
+    setAuthError(null);
 
-    setTimeout(() => {
-      const googleUser: UserProfile = {
-        name: 'Luân Ninh',
-        email: 'luanninh2005@gmail.com',
-        picture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
-        isLoggedIn: true,
-        loginTime: new Date().toLocaleTimeString('vi-VN'),
-        scopes: [
-          'https://www.googleapis.com/auth/userinfo.profile',
-          'https://www.googleapis.com/auth/userinfo.email',
-        ],
-      };
-      setIsLoading(false);
-      setLoginStep('SUCCESS');
-      onLogin(googleUser);
-    }, 1000);
+    try {
+      const fbResult = await signInWithGoogleFirebase();
+      if (fbResult?.accessToken) {
+        setIsLoading(false);
+        const googleUser: UserProfile = {
+          name: fbResult.user.displayName || user.name || 'Luân Ninh',
+          email: fbResult.user.email || user.email || 'luanninh2005@gmail.com',
+          picture: fbResult.user.photoURL || user.picture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+          isLoggedIn: true,
+          loginTime: new Date().toLocaleTimeString('vi-VN'),
+          accessToken: fbResult.accessToken,
+          scopes: [
+            'https://www.googleapis.com/auth/userinfo.profile',
+            'https://www.googleapis.com/auth/userinfo.email',
+            'https://www.googleapis.com/auth/drive.file',
+          ],
+        };
+        onLogin(googleUser);
+        return;
+      }
+    } catch (fbErr: any) {
+      console.warn('Firebase Auth popup failed or cancelled, trying GIS fallback:', fbErr);
+    }
+
+    requestGoogleAccessToken({
+      scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file',
+      callback: (resp) => {
+        setIsLoading(false);
+        if (resp.access_token) {
+          const googleUser: UserProfile = {
+            name: user.name || 'Luân Ninh',
+            email: user.email || 'luanninh2005@gmail.com',
+            picture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+            isLoggedIn: true,
+            loginTime: new Date().toLocaleTimeString('vi-VN'),
+            accessToken: resp.access_token,
+            scopes: [
+              'https://www.googleapis.com/auth/userinfo.profile',
+              'https://www.googleapis.com/auth/userinfo.email',
+              'https://www.googleapis.com/auth/drive.file',
+            ],
+          };
+          onLogin(googleUser);
+        } else {
+          const errDetail = resp.error?.message || resp.error || 'Xác thực Google OAuth không thành công';
+          setAuthError(`Lỗi OAuth: ${errDetail}. Quý khách có thể dán Google OAuth Access Token trực tiếp bên dưới.`);
+          setShowManualInput(true);
+        }
+      },
+    });
+  };
+
+  const handleApplyManualToken = () => {
+    if (!manualTokenInput.trim()) return;
+    const googleUser: UserProfile = {
+      name: user.name || 'Luân Ninh',
+      email: user.email || 'luanninh2005@gmail.com',
+      picture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      isLoggedIn: true,
+      loginTime: new Date().toLocaleTimeString('vi-VN'),
+      accessToken: manualTokenInput.trim(),
+      scopes: [
+        'https://www.googleapis.com/auth/userinfo.profile',
+        'https://www.googleapis.com/auth/userinfo.email',
+        'https://www.googleapis.com/auth/drive.file',
+      ],
+    };
+    onLogin(googleUser);
+    setAuthError(null);
   };
 
   return (
@@ -128,9 +186,13 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
                     </span>
                   </div>
                   <p className="text-xs text-[#72787e] font-mono truncate">{user.email}</p>
-                  {user.loginTime && (
-                    <p className="text-[10px] text-[#72787e] mt-1">
-                      {language === 'VN' ? 'Phiên đăng nhập:' : 'Session start:'} {user.loginTime}
+                  {user.accessToken ? (
+                    <p className="text-[10px] text-emerald-700 font-medium mt-1 truncate">
+                      ✓ Token: {user.accessToken.slice(0, 15)}...
+                    </p>
+                  ) : (
+                    <p className="text-[10px] text-amber-700 font-medium mt-1">
+                      ⚠️ Chưa có OAuth Token thực (vui lòng kết nối để tránh lỗi 403)
                     </p>
                   )}
                 </div>
@@ -195,19 +257,29 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
               <div>
                 <h4 className="text-base font-bold text-[#0f1d28]">
-                  {language === 'VN' ? 'Đăng nhập vào EventKnow' : 'Sign in to EventKnow'}
+                  {language === 'VN' ? 'Đăng nhập Google OAuth 2.0' : 'Sign in with Google OAuth 2.0'}
                 </h4>
                 <p className="text-xs text-[#72787e] max-w-xs mx-auto mt-1">
                   {language === 'VN'
-                    ? 'Sử dụng tài khoản Google OAuth 2.0 để đồng bộ dữ liệu sự kiện và báo cáo cá nhân.'
-                    : 'Use your Google OAuth 2.0 account to sync event data and personalized reports.'}
+                    ? 'Yêu cầu quyền drive.file chính thức để đọc tệp từ Google Drive & Google Picker.'
+                    : 'Requests official drive.file scope to pick and read Google Drive files.'}
                 </p>
               </div>
 
+              {authError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-left text-xs text-red-800 space-y-1">
+                  <div className="flex items-center gap-1.5 font-bold">
+                    <AlertCircle className="w-4 h-4 text-red-600 shrink-0" />
+                    <span>Lỗi xác thực OAuth</span>
+                  </div>
+                  <p className="text-[11px] leading-relaxed">{authError}</p>
+                </div>
+              )}
+
               {/* Login Action Button */}
-              <div className="pt-2">
+              <div className="pt-2 space-y-2">
                 <button
-                  onClick={handleSimulateGoogleLogin}
+                  onClick={handleRealGoogleOAuth}
                   disabled={isLoading}
                   className="w-full flex items-center justify-center gap-3 bg-white hover:bg-gray-50 text-gray-800 font-semibold text-xs py-2.5 px-4 border border-gray-300 rounded-lg shadow-sm transition-all cursor-pointer disabled:opacity-50"
                 >
@@ -235,15 +307,48 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
                   )}
                   <span>
                     {isLoading
-                      ? (language === 'VN' ? 'Đang xác thực Google OAuth...' : 'Authenticating Google OAuth...')
-                      : (language === 'VN' ? 'Đăng nhập bằng Google' : 'Sign in with Google')}
+                      ? (language === 'VN' ? 'Mở cửa sổ xác thực Google OAuth...' : 'Opening Google OAuth Popup...')
+                      : (language === 'VN' ? 'Đăng nhập Google OAuth (Cấp drive.file)' : 'Sign in Google OAuth (grant drive.file)')}
                   </span>
                 </button>
+
+                {/* Option to input manual OAuth Token if needed */}
+                <div className="pt-2">
+                  <button
+                    onClick={() => setShowManualInput(!showManualInput)}
+                    className="text-[11px] text-[#00344c] hover:underline flex items-center justify-center gap-1 mx-auto font-medium"
+                  >
+                    <Key className="w-3 h-3 text-amber-600" />
+                    <span>{showManualInput ? 'Ẩn ô nhập Token' : 'Nhập Google OAuth Access Token thủ công (Nếu bị chặn Popup)'}</span>
+                  </button>
+
+                  {showManualInput && (
+                    <div className="mt-2.5 p-3 bg-amber-50 border border-amber-200 rounded-lg text-left space-y-2">
+                      <label className="text-[11px] font-bold text-amber-900 block">
+                        Google OAuth Access Token (Scope drive.file):
+                      </label>
+                      <input
+                        type="password"
+                        value={manualTokenInput}
+                        onChange={(e) => setManualTokenInput(e.target.value)}
+                        placeholder="Paste ya29... token tại đây"
+                        className="w-full text-xs font-mono px-3 py-2 bg-white border border-amber-300 rounded focus:outline-none focus:border-[#00344c]"
+                      />
+                      <button
+                        onClick={handleApplyManualToken}
+                        disabled={!manualTokenInput.trim()}
+                        className="w-full bg-amber-700 hover:bg-amber-800 text-white font-bold text-xs py-1.5 rounded transition-all disabled:opacity-50 cursor-pointer"
+                      >
+                        Lưu Token & Đăng nhập
+                      </button>
+                    </div>
+                  )}
+                </div>
               </div>
 
               <div className="text-[10px] text-[#72787e] pt-1 flex items-center justify-center gap-1">
                 <Lock className="w-3 h-3 text-emerald-600 inline" />
-                <span>Google OAuth 2.0 Client ID Verified</span>
+                <span>Scope drive.file được Google xác thực an toàn</span>
               </div>
             </div>
           )}
@@ -252,3 +357,4 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     </div>
   );
 };
+

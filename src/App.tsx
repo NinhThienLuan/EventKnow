@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { ArrowLeft, Plus, FileText } from 'lucide-react';
+import { ArrowLeft, Plus, FileText, Network } from 'lucide-react';
 import { Header } from './components/Header';
 import { SourceTree } from './components/SourceTree';
 import { PromptSection } from './components/PromptSection';
@@ -61,16 +61,18 @@ export default function App() {
     }
   };
 
-  const handleGrantDrivePermission = () => {
-    const currentScopes = userProfile.scopes || [
+  const handleGrantDrivePermission = (accessToken?: string) => {
+    const currentScopes = userProfile.scopes ? [...userProfile.scopes] : [
       'https://www.googleapis.com/auth/userinfo.profile',
       'https://www.googleapis.com/auth/userinfo.email',
     ];
-    if (!currentScopes.some(s => s.includes('drive'))) {
-      currentScopes.push('https://www.googleapis.com/auth/drive.readonly');
+    if (!currentScopes.some(s => s.includes('drive.file'))) {
+      currentScopes.push('https://www.googleapis.com/auth/drive.file');
     }
     const updatedProfile = {
       ...userProfile,
+      isLoggedIn: true,
+      accessToken: accessToken || userProfile.accessToken,
       scopes: currentScopes,
     };
     handleSaveUserProfile(updatedProfile);
@@ -104,7 +106,7 @@ export default function App() {
   const [currentReport, setCurrentReport] = useState<AIReport>(MOCK_REPORTS['report-1']);
   const [isLoading, setIsLoading] = useState<boolean>(false);
 
-  const [sidePanelOpen, setSidePanelOpen] = useState<boolean>(true);
+  const [sidePanelOpen, setSidePanelOpen] = useState<boolean>(false);
   const [selectedCitationId, setSelectedCitationId] = useState<string | undefined>(undefined);
 
   const [selectedSources, setSelectedSources] = useState<string[]>(['Event DB Core']);
@@ -303,6 +305,19 @@ export default function App() {
 
                 <div className="flex items-center gap-2 self-end sm:self-auto">
                   <button
+                    onClick={() => setSidePanelOpen(!sidePanelOpen)}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer border ${
+                      sidePanelOpen
+                        ? 'bg-[#5B4B8A] text-white border-[#5B4B8A]'
+                        : 'bg-[#EEF1F4] text-[#5B4B8A] border-[#DCE1E6] hover:bg-[#DCE1E6]'
+                    }`}
+                    title={language === 'VN' ? 'Mở/đóng Phân tích kết nối & Bối cảnh' : 'Toggle Connections & Context Panel'}
+                  >
+                    <Network className="w-3.5 h-3.5" />
+                    <span>{language === 'VN' ? (sidePanelOpen ? 'Ẩn sơ đồ kết nối' : 'Sơ đồ kết nối & Bối cảnh') : (sidePanelOpen ? 'Hide Context' : 'Connections & Context')}</span>
+                  </button>
+
+                  <button
                     onClick={() => setActiveNavView('home')}
                     className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold text-white bg-[#00344c] hover:bg-[#1b4b66] rounded-md transition-all shadow-2xs cursor-pointer"
                   >
@@ -399,14 +414,16 @@ export default function App() {
           )}
         </main>
 
-        {/* Right 380px Side Panel for Connections & Context */}
-        <SidePanel
-          isOpen={sidePanelOpen}
-          onClose={() => setSidePanelOpen(false)}
-          report={currentReport}
-          selectedCitationId={selectedCitationId}
-          language={language}
-        />
+        {/* Right 380px Side Panel for Connections & Context (Only rendered on supported views: reports & home) */}
+        {['reports', 'home'].includes(activeNavView) && (
+          <SidePanel
+            isOpen={sidePanelOpen}
+            onClose={() => setSidePanelOpen(false)}
+            report={currentReport}
+            selectedCitationId={selectedCitationId}
+            language={language}
+          />
+        )}
       </div>
 
       {/* Source Selector Modal */}
