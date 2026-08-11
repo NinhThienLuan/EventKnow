@@ -1,0 +1,6 @@
+{
+  "name": "EventKnow",
+  "description": "Hệ thống Quản lý Tri thức Sự kiện & Báo cáo Phân tích Dữ liệu (Event Intelligence Platform)",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

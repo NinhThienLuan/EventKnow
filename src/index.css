@@ -1,0 +1,236 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --color-surface: #f7f9ff;
+    --color-surface-dim: #cedbec;
+    --color-surface-bright: #f7f9ff;
+    --color-surface-container-lowest: #ffffff;
+    --color-surface-container-low: #edf4ff;
+    --color-surface-container: #e2efff;
+    --color-surface-container-high: #dceafa;
+    --color-surface-container-highest: #d6e4f4;
+    --color-on-surface: #0f1d28;
+    --color-on-surface-variant: #41474d;
+    --color-primary: #00344c;
+    --color-on-primary: #ffffff;
+    --color-primary-container: #1b4b66;
+    --color-on-primary-container: #8fbada;
+    --color-secondary: #595f66;
+    --color-secondary-container: #dde3eb;
+    --color-citation-accent: #B8860B;
+    --color-bg-sunken: #EEF1F4;
+    --color-bg-primary: #F8FAFC;
+    --color-border-subtle: #DCE1E6;
+    --color-connection-accent: #5B4B8A;
+    
+    --font-display: 'Be Vietnam Pro', sans-serif;
+    --font-body: 'Inter', sans-serif;
+    --font-mono: 'JetBrains Mono', monospace;
+  }
+
+  body {
+    font-family: var(--font-body);
+    background-color: var(--color-surface);
+    color: var(--color-on-surface);
+  }
+}
+
+/* Dark Theme Overrides */
+.theme-dark {
+  --color-surface: #0f172a;
+  --color-on-surface: #f8fafc;
+  --color-on-surface-variant: #94a3b8;
+  --color-bg-sunken: #1e293b;
+  --color-bg-primary: #0f172a;
+  --color-border-subtle: #334155;
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+}
+
+.theme-dark header {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+.theme-dark aside {
+  background-color: #1e293b !important;
+  border-color: #334155 !important;
+}
+
+.theme-dark main {
+  background-color: #0f172a !important;
+}
+
+.theme-dark .bg-white {
+  background-color: #1e293b !important;
+  color: #f8fafc !important;
+}
+
+.theme-dark .bg-\[\#EEF1F4\],
+.theme-dark .bg-\[\#E2E7EC\],
+.theme-dark .bg-\[\#F8FAFC\] {
+  background-color: #0f172a !important;
+  color: #e2e8f0 !important;
+}
+
+.theme-dark .border-\[\#DCE1E6\],
+.theme-dark .border-\[\#c1c7cd\] {
+  border-color: #334155 !important;
+}
+
+.theme-dark .text-\[\#00344c\],
+.theme-dark .text-\[\#0f1d28\] {
+  color: #f1f5f9 !important;
+}
+
+.theme-dark .text-\[\#41474d\],
+.theme-dark .text-\[\#72787e\] {
+  color: #94a3b8 !important;
+}
+
+.theme-dark input,
+.theme-dark textarea {
+  background-color: #0f172a !important;
+  color: #f8fafc !important;
+  border-color: #334155 !important;
+}
+
+.theme-dark table th {
+  background-color: #0f172a !important;
+  color: #cbd5e1 !important;
+}
+
+.theme-dark table td {
+  border-color: #334155 !important;
+}
+
+.theme-dark table tr:hover {
+  background-color: #182234 !important;
+}
+
+.theme-dark .bg-\[\#edf4ff\],
+.theme-dark .bg-\[\#e2efff\] {
+  background-color: #182234 !important;
+  color: #38bdf8 !important;
+}
+
+/* Typography Utility Classes based on Quiet Authority spec */
+.font-display {
+  font-family: 'Be Vietnam Pro', sans-serif;
+}
+
+.font-body {
+  font-family: 'Inter', sans-serif;
+}
+
+.font-data-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+.text-display-lg {
+  font-family: 'Be Vietnam Pro', sans-serif;
+  font-size: 32px;
+  font-weight: 600;
+  line-height: 1.2;
+}
+
+.text-headline-md {
+  font-family: 'Be Vietnam Pro', sans-serif;
+  font-size: 20px;
+  font-weight: 600;
+  line-height: 1.3;
+}
+
+.text-subheading-sm {
+  font-family: 'Inter', sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.text-body-md {
+  font-family: 'Inter', sans-serif;
+  font-size: 14px;
+  font-weight: 400;
+  line-height: 1.6;
+}
+
+.text-table-cell {
+  font-family: 'Inter', sans-serif;
+  font-size: 13px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+.text-caption-xs {
+  font-family: 'Inter', sans-serif;
+  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.4;
+}
+
+.text-data-mono {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  font-weight: 400;
+  line-height: 1.5;
+}
+
+/* Citation Chip & Status Pill Style according to spec */
+.citation-chip {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  font-weight: 500;
+  background-color: rgba(184, 134, 11, 0.12);
+  color: #B8860B;
+  border: 1px solid #B8860B;
+  border-radius: 4px;
+  padding: 1px 6px;
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  transition: all 0.15s ease-in-out;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.citation-chip:hover {
+  background-color: rgba(184, 134, 11, 0.22);
+  box-shadow: 0px 4px 12px rgba(26, 39, 51, 0.12);
+  transform: translateY(-1px);
+}
+
+.pill-status {
+  border-radius: 9999px;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-weight: 600;
+  display: inline-block;
+  letter-spacing: 0.025em;
+}
+
+.source-item-active {
+  border-left: 3px solid #1b4b66;
+  background-color: rgba(27, 75, 102, 0.05);
+}
+
+/* Custom Scrollbar for High Density Tables and Trees */
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+
+::-webkit-scrollbar-track {
+  background: #EEF1F4;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #C1C7CD;
+  border-radius: 3px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #72787E;
+}
