@@ -1,4 +1,4 @@
-package com.eventknow.backend.model.entity;
+package com.eventknow.backend.model.entity.Audit;
 
 import jakarta.persistence.*;
 import lombok.*;
@@ -30,7 +30,7 @@ public class UserDriveConnectionEntity {
     private String refreshTokenEncrypted;
 
     @JdbcTypeCode(SqlTypes.ARRAY)
-    @Column(name = "granted_scopes", columnDefinition = "text[]")
+    @Column(name = "granted_scopes")
     @Builder.Default
     private List<String> grantedScopes = List.of("drive.file");
 

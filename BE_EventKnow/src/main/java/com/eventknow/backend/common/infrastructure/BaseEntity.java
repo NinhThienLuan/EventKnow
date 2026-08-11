@@ -1,4 +1,4 @@
-package com.eventknow.backend.infrastructure;
+package com.eventknow.backend.common.infrastructure;
 
 import jakarta.persistence.*;
 import lombok.AllArgsConstructor;

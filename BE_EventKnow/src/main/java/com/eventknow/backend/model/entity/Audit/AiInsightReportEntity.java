@@ -1,4 +1,4 @@
-package com.eventknow.backend.model.entity;
+package com.eventknow.backend.model.entity.Audit;
 
 import jakarta.persistence.*;
 import lombok.*;
@@ -36,7 +36,7 @@ public class AiInsightReportEntity {
     private String reportMarkdown;
 
     @JdbcTypeCode(SqlTypes.ARRAY)
-    @Column(name = "source_departments", columnDefinition = "text[]")
+    @Column(name = "source_departments")
     private List<String> sourceDepartments;
 
     @Column(name = "requested_by_email", length = 255)

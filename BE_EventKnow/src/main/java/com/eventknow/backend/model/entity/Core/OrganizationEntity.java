@@ -1,6 +1,6 @@
-package com.eventknow.backend.model.entity;
+package com.eventknow.backend.model.entity.Core;
 
-import com.eventknow.backend.infrastructure.BaseEntity;
+import com.eventknow.backend.common.infrastructure.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
@@ -34,6 +34,14 @@ public class OrganizationEntity extends BaseEntity {
     private Map<String, Object> dynamicAttributes;
 
     @JdbcTypeCode(SqlTypes.ARRAY)
-    @Column(name = "merged_from_ids", columnDefinition = "uuid[]")
+    @Column(name = "merged_from_ids")
     private List<UUID> mergedFromIds;
+
+    @Column(name = "is_active", nullable = false)
+    @Builder.Default
+    private boolean isActive = true;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "merged_into_id")
+    private OrganizationEntity mergedInto;
 }

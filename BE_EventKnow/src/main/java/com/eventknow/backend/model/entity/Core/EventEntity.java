@@ -1,13 +1,12 @@
-package com.eventknow.backend.model.entity;
+package com.eventknow.backend.model.entity.Core;
 
-import com.eventknow.backend.infrastructure.BaseEntity;
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Table;
+import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+
+import com.eventknow.backend.common.infrastructure.BaseEntity;
 
 import java.time.LocalDate;
 import java.util.List;
@@ -32,6 +31,14 @@ public class EventEntity extends BaseEntity {
     private String department;
 
     @JdbcTypeCode(SqlTypes.ARRAY)
-    @Column(name = "merged_from_ids", columnDefinition = "uuid[]")
+    @Column(name = "merged_from_ids")
     private List<UUID> mergedFromIds;
+
+    @Column(name = "is_active", nullable = false)
+    @Builder.Default
+    private boolean isActive = true;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "merged_into_id")
+    private EventEntity mergedInto;
 }

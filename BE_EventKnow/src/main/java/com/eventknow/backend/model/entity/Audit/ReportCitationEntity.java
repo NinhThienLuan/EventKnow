@@ -1,5 +1,6 @@
-package com.eventknow.backend.model.entity;
+package com.eventknow.backend.model.entity.Audit;
 
+import com.eventknow.backend.model.entity.Core.EventAttendanceEntity;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;

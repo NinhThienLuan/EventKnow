@@ -1,11 +1,12 @@
-package com.eventknow.backend.model.entity;
+package com.eventknow.backend.model.entity.Core;
 
-import com.eventknow.backend.infrastructure.BaseEntity;
 import jakarta.persistence.*;
 import lombok.*;
 import lombok.experimental.SuperBuilder;
 import org.hibernate.annotations.JdbcTypeCode;
 import org.hibernate.type.SqlTypes;
+
+import com.eventknow.backend.common.infrastructure.BaseEntity;
 
 import java.util.List;
 import java.util.Map;
@@ -36,7 +37,7 @@ public class AttendeeProfileEntity extends BaseEntity {
     private String academicTitleRaw;
 
     @JdbcTypeCode(SqlTypes.ARRAY)
-    @Column(name = "academic_title_normalized", columnDefinition = "text[]")
+    @Column(name = "academic_title_normalized")
     private List<String> academicTitleNormalized;
 
     @Enumerated(EnumType.STRING)
@@ -63,7 +64,7 @@ public class AttendeeProfileEntity extends BaseEntity {
     private Map<String, Object> dynamicAttributes;
 
     @JdbcTypeCode(SqlTypes.ARRAY)
-    @Column(name = "merged_from_ids", columnDefinition = "uuid[]")
+    @Column(name = "merged_from_ids")
     private List<UUID> mergedFromIds;
 
     @Column(name = "is_active", nullable = false)

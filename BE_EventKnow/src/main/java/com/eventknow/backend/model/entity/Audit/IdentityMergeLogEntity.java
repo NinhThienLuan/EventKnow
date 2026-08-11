@@ -1,4 +1,4 @@
-package com.eventknow.backend.model.entity;
+package com.eventknow.backend.model.entity.Audit;
 
 import jakarta.persistence.*;
 import lombok.*;
@@ -28,6 +28,9 @@ public class IdentityMergeLogEntity {
 
     @Column(name = "target_org_id")
     private UUID targetOrgId;
+
+    @Column(name = "target_event_id")
+    private UUID targetEventId;
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "merged_entity_snapshot", nullable = false, columnDefinition = "jsonb")

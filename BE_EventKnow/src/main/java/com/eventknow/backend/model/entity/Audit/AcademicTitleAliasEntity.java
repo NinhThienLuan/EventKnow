@@ -1,4 +1,4 @@
-package com.eventknow.backend.model.entity;
+package com.eventknow.backend.model.entity.Audit;
 
 import jakarta.persistence.*;
 import lombok.*;
