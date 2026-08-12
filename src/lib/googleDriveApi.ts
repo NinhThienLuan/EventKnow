@@ -55,6 +55,49 @@ export function loadGoogleGsiScript(): Promise<void> {
 }
 
 /**
+ * Request Google OAuth Authorization Code via GIS Code Client (initCodeClient with access_type=offline).
+ * This obtains a single-use code that is sent to the backend to exchange for a Refresh Token (FR-9.1 & FR-6.2).
+ */
+export function requestGoogleAuthCode({
+  clientId,
+  scope = 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email',
+  callback,
+}: {
+  clientId?: string;
+  scope?: string;
+  callback: (response: { code?: string; error?: any }) => void;
+}) {
+  loadGoogleGsiScript()
+    .then(() => {
+      if (!window.google?.accounts?.oauth2) {
+        callback({ error: 'GIS library not loaded' });
+        return;
+      }
+
+      const effectiveClientId = clientId || firebaseConfig.oAuthClientId || '330547849960-sf6q2k37j7nukb0u5i7b8co97r692pbn.apps.googleusercontent.com';
+
+      const codeClient = window.google.accounts.oauth2.initCodeClient({
+        client_id: effectiveClientId,
+        scope: scope,
+        ux_mode: 'popup',
+        access_type: 'offline', // CRITICAL for receiving refresh_token at backend
+        callback: (resp: any) => {
+          if (resp.error) {
+            console.warn('GIS Code Client error:', resp);
+          }
+          callback(resp);
+        },
+      });
+
+      codeClient.requestCode();
+    })
+    .catch((err) => {
+      console.error('Failed to load GIS for Code Client:', err);
+      callback({ error: err.message });
+    });
+}
+
+/**
  * Request real Google OAuth Access Token via Google Identity Services popup
  */
 export function requestGoogleAccessToken({
@@ -164,7 +207,7 @@ export function cleanUpGooglePickerDOM() {
 /**
  * Launches the native Google Picker API popup using drive.file scope with cleanup safety
  */
-export function openGooglePickerPopup({
+export async function openGooglePickerPopup({
   accessToken,
   onPicked,
   onError,
@@ -183,6 +226,15 @@ export function openGooglePickerPopup({
     return;
   }
 
+  // Try requesting Storage Access API to prevent Third-Party Cookie blocking inside iframes
+  if (typeof document !== 'undefined' && 'requestStorageAccess' in document) {
+    try {
+      await (document as any).requestStorageAccess();
+    } catch (e) {
+      // Storage access request denied or not required, continue
+    }
+  }
+
   loadGooglePickerScript()
     .then(() => {
       if (!window.google?.picker) {
@@ -196,12 +248,22 @@ export function openGooglePickerPopup({
 
       const appId = (firebaseConfig as any).projectId || '330547849960';
 
+      // Safe origin check: Avoid setting origin = 'null' which crashes Google Picker SDK in sandboxed iframes
+      let origin = window.location.origin;
+      if (!origin || origin === 'null') {
+        origin = window.location.protocol + '//' + window.location.host;
+      }
+
       const pickerBuilder = new window.google.picker.PickerBuilder()
         .addView(docsView)
         .addView(new window.google.picker.DocsUploadView())
         .setOAuthToken(accessToken)
-        .setAppId(appId)
-        .setOrigin(window.location.protocol + '//' + window.location.host);
+        .setAppId(appId);
+
+      // ONLY setOrigin when origin is valid and NOT 'null'
+      if (origin && origin !== 'null') {
+        pickerBuilder.setOrigin(origin);
+      }
 
       const picker = pickerBuilder
         .setCallback((data: any) => {
@@ -235,7 +297,7 @@ export function openGooglePickerPopup({
           if (iframe && (!iframe.contentDocument || iframe.contentDocument.body?.children?.length === 0)) {
             cleanUpGooglePickerDOM();
             if (onError) {
-              onError(new Error('Google Picker bị chặn bởi iframe sandbox. Vui lòng dùng tính năng Dán link Drive hoặc chọn trực tiếp bên dưới.'));
+              onError(new Error('Giao diện Google Picker Popup bị chặn bởi sandbox. Vui lòng thử lại hoặc cấp quyền Google OAuth.'));
             }
           }
         }
@@ -248,91 +310,71 @@ export function openGooglePickerPopup({
     });
 }
 
+export interface DriveFileRestItem {
+  id: string;
+  name: string;
+  mimeType: string;
+  webViewLink?: string;
+  size?: string;
+  modifiedTime?: string;
+}
+
 /**
- * Fetch files directly from Google Drive REST API v3 using user's OAuth Access Token
+ * Direct REST API fallback: Lấy danh sách file mà app có quyền truy cập qua Drive v3 REST API
  */
-export async function fetchRealGoogleDriveFiles(accessToken: string): Promise<GoogleDriveRealFile[]> {
+export async function fetchUserDriveFiles(accessToken: string): Promise<DriveFileRestItem[]> {
   if (!accessToken) {
-    throw new Error('Cần có Access Token để gọi Google Drive API (Lỗi 403: Missing Authorization Token)');
+    throw new Error('Cần có Access Token để gọi Google Drive API');
   }
 
-  try {
-    const url = 'https://www.googleapis.com/drive/v3/files?' + new URLSearchParams({
-      pageSize: '25',
-      fields: 'files(id, name, mimeType, size, modifiedTime, owners, webViewLink)',
-      orderBy: 'modifiedTime desc',
-      q: "trashed = false",
-    });
+  const query = "trashed = false and (mimeType = 'application/vnd.google-apps.spreadsheet' or mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' or mimeType = 'application/vnd.google-apps.document' or mimeType = 'application/pdf' or mimeType = 'text/csv')";
 
-    const response = await fetch(url, {
+  const response = await fetch(
+    `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}&fields=files(id,name,mimeType,webViewLink,size,modifiedTime)&pageSize=30`,
+    {
       headers: {
         Authorization: `Bearer ${accessToken}`,
       },
-    });
-
-    if (!response.ok) {
-      const errorData = await response.json().catch(() => ({}));
-      if (response.status === 403 || response.status === 401) {
-        throw new Error(`Google API (Lỗi ${response.status}): Token không có quyền truy cập hoặc đã hết hạn. Chi tiết: ${errorData.error?.message || 'Permission Denied / Invalid Credentials'}`);
-      }
-      throw new Error(errorData.error?.message || `Google Drive API error (${response.status})`);
     }
+  );
 
-    const data = await response.json();
-    return data.files || [];
-  } catch (error) {
-    console.error('Failed to fetch Google Drive files:', error);
-    throw error;
+  if (!response.ok) {
+    const errJson = await response.json().catch(() => ({}));
+    throw new Error(errJson.error?.message || `Google Drive REST API error (${response.status})`);
   }
+
+  const data = await response.json();
+  return data.files || [];
 }
 
 /**
- * Extracts Google Drive file ID from a full Google Drive URL or returns the string if it's already an ID
+ * Create a new sample Google Sheet on the user's Drive using REST API v3 under drive.file scope
  */
-export function extractGoogleDriveFileId(input: string): string | null {
-  if (!input) return null;
-  const trimmed = input.trim();
-  
-  // Standard Drive URL patterns:
-  // https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit
-  // https://drive.google.com/file/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/view
-  const match = trimmed.match(/\/d\/([a-zA-Z0-9_-]+)/);
-  if (match && match[1]) {
-    return match[1];
+export async function createSampleDriveFile(accessToken: string, title = 'EventKnow - Kịch bản sự kiện mẫu'): Promise<DriveFileRestItem> {
+  if (!accessToken) {
+    throw new Error('Cần có Access Token để tạo tệp trên Google Drive');
   }
 
-  // If input matches a standard file ID pattern (alphanumeric, hyphens, underscores, length >= 25)
-  if (/^[a-zA-Z0-9_-]{20,}$/.test(trimmed)) {
-    return trimmed;
-  }
+  const metadata = {
+    name: title,
+    mimeType: 'application/vnd.google-apps.spreadsheet',
+  };
 
-  return null;
-}
-
-/**
- * Fetch a single file by ID or URL using Google Drive REST API v3
- */
-export async function fetchSingleGoogleDriveFile(fileIdOrUrl: string, accessToken: string): Promise<GoogleDriveRealFile> {
-  const fileId = extractGoogleDriveFileId(fileIdOrUrl);
-  if (!fileId) {
-    throw new Error('Định dạng URL hoặc ID tệp Google Drive không hợp lệ.');
-  }
-
-  const url = `https://www.googleapis.com/drive/v3/files/${fileId}?` + new URLSearchParams({
-    fields: 'id, name, mimeType, size, modifiedTime, owners, webViewLink',
-  });
-
-  const response = await fetch(url, {
+  const response = await fetch('https://www.googleapis.com/drive/v3/files?fields=id,name,mimeType,webViewLink,size,modifiedTime', {
+    method: 'POST',
     headers: {
-      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
     },
+    body: JSON.stringify(metadata),
   });
 
   if (!response.ok) {
-    const errorData = await response.json().catch(() => ({}));
-    throw new Error(errorData.error?.message || `Lỗi truy xuất file Google Drive (${response.status})`);
+    const errJson = await response.json().catch(() => ({}));
+    throw new Error(errJson.error?.message || `Lỗi tạo tệp Google Drive (${response.status})`);
   }
 
   return await response.json();
 }
+
 

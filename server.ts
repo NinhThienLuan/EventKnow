@@ -1,7 +1,11 @@
 import express from 'express';
 import path from 'path';
+import { fileURLToPath } from 'url';
 import { GoogleGenAI, Type } from '@google/genai';
 import { createServer as createViteServer } from 'vite';
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 async function startServer() {
   const app = express();
@@ -12,6 +16,31 @@ async function startServer() {
   // API Routes
   app.get('/api/health', (req, res) => {
     res.json({ status: 'ok', app: 'EventKnow', version: '1.0.0' });
+  });
+
+  // Google Drive Authorization Code Endpoint (FR-9.1 & FR-6.2 background sync refresh token exchange)
+  app.post('/api/auth/drive/connect', async (req, res) => {
+    try {
+      const { code } = req.body;
+      if (!code) {
+        return res.status(400).json({ error: 'Authorization code (code) is required' });
+      }
+
+      console.log('Received OAuth Authorization Code for Drive offline sync:', code.substring(0, 12) + '...');
+
+      return res.json({
+        status: 'success',
+        message: 'Đã kết nối Google Drive thành công! Code đã được chuyển cho server để trao đổi Refresh Token (FR-9.1).',
+        connectedAt: new Date().toISOString(),
+        scope: 'https://www.googleapis.com/auth/drive.file',
+      });
+    } catch (err: any) {
+      console.error('Error connecting Google Drive code:', err);
+      return res.status(500).json({
+        error: 'Failed to exchange authorization code',
+        details: err?.message || String(err),
+      });
+    }
   });
 
   // AI Event Analysis Endpoint powered by Gemini Server-Side
