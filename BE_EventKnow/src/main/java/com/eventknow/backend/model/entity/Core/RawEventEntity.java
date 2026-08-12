@@ -71,6 +71,9 @@ public class RawEventEntity extends BaseEntity {
     @Builder.Default
     private int rowCount = 0;
 
+    @Column(name = "error_message", columnDefinition = "text")
+    private String errorMessage;
+
     public enum SourceType {
         EXCEL, GOOGLE_FORM, SCAN_OCR
     }

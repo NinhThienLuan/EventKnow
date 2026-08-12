@@ -53,6 +53,15 @@ public class ExtractionJobEntity {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    @Column(name = "raw_header_cols", columnDefinition = "text")
+    private String rawHeaderCols;
+
+    @Column(name = "raw_rows_content", columnDefinition = "text")
+    private String rawRowsContent;
+
+    @Column(name = "source_sheet_name", length = 255)
+    private String sourceSheetName;
+
     public enum ExtractionStatus {
         PENDING, PROCESSING, DONE, FAILED, RETRYING
     }
