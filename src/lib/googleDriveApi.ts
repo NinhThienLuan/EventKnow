@@ -286,7 +286,14 @@ export async function openGooglePickerPopup({
         })
         .build();
 
-      picker.setVisible(true);
+      try {
+        picker.setVisible(true);
+      } catch (visErr: any) {
+        cleanUpGooglePickerDOM();
+        console.warn('Google Picker setVisible failed in iframe sandbox:', visErr);
+        if (onError) onError(visErr instanceof Error ? visErr : new Error('Google Picker popup blocked in iframe sandbox'));
+        return;
+      }
 
       // Auto-cleanup timer if frame gets blocked by sandbox
       setTimeout(() => {
@@ -301,7 +308,7 @@ export async function openGooglePickerPopup({
             }
           }
         }
-      }, 2500);
+      }, 2000);
     })
     .catch((err) => {
       cleanUpGooglePickerDOM();
