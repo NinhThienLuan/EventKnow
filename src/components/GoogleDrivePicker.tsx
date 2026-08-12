@@ -140,9 +140,9 @@ export const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
   };
 
   /**
-   * Option A Fallback: Fetch user drive files directly via REST API if Picker encounters iframe sandbox issues
+   * Hybrid Fallback Flow: Fetch user drive files directly via REST API if Picker is blocked by browser/iframe sandbox
    */
-  const handleFetchViaRestApi = async () => {
+  const handleFetchViaRestApi = async (isBlockedFallback = false) => {
     if (!activeToken) {
       setApiError('Vui lòng cấp quyền Google OAuth trước khi tải danh sách tệp.');
       return;
@@ -150,6 +150,11 @@ export const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
 
     setIsOpeningPicker(true);
     setApiError(null);
+
+    if (isBlockedFallback) {
+      setConnectNotice('Do môi trường trình duyệt hạn chế cửa sổ Google Picker, ứng dụng chuyển sang danh sách file khả dụng trực tiếp.');
+    }
+
     try {
       const restFiles = await fetchUserDriveFiles(activeToken);
       const convertedItems: DriveFileItem[] = restFiles.map((f) => ({
@@ -172,9 +177,18 @@ export const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
       });
 
       if (convertedItems.length === 0) {
-        setApiError('Lưu ý Scope drive.file: Ứng dụng chỉ xem được các tệp do ứng dụng tự tạo hoặc do bạn chủ động chọn qua Google Picker. Quý khách có thể bấm "Tạo Kịch Bản Mẫu (+)" bên dưới để tạo ngay tệp Google Sheet trên Drive.');
+        if (isBlockedFallback) {
+          setConnectNotice('Do môi trường trình duyệt hạn chế cửa sổ Google Picker, ứng dụng chuyển sang danh sách file khả dụng trực tiếp.');
+          setApiError('Lưu ý Scope drive.file: Ứng dụng chỉ đọc được tệp do ứng dụng tạo hoặc tệp được cấp phép. Bạn có thể nhấn "Tạo Kịch Bản Mẫu On Drive (+)" bên dưới để tạo ngay tệp Google Sheet kịch bản.');
+        } else {
+          setApiError('Lưu ý Scope drive.file: Ứng dụng chỉ xem được các tệp do ứng dụng tự tạo hoặc do bạn chọn qua Google Picker. Quý khách có thể bấm "Tạo Kịch Bản Mẫu On Drive (+)" bên dưới.');
+        }
       } else {
-        setConnectNotice(`✅ Đã tải thành công ${convertedItems.length} tệp từ Google Drive qua REST API!`);
+        setConnectNotice(
+          isBlockedFallback
+            ? `Do môi trường trình duyệt hạn chế cửa sổ Google Picker, ứng dụng chuyển sang danh sách file khả dụng trực tiếp. (Đã nạp ${convertedItems.length} tệp)`
+            : `✅ Đã tải thành công ${convertedItems.length} tệp từ Google Drive qua REST API!`
+        );
       }
     } catch (err: any) {
       console.warn('REST API fetch error:', err);
@@ -219,11 +233,27 @@ export const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
   };
 
   /**
-   * Open native Google Picker popup
+   * Standard Flow: Always attempt native Google Picker popup first (Hybrid Approach)
    */
   const handleLaunchGooglePicker = () => {
     setApiError(null);
     setIsOpeningPicker(true);
+
+    const openPickerWithToken = (token: string) => {
+      openGooglePickerPopup({
+        accessToken: token,
+        onPicked: (pickedFiles) => {
+          setIsOpeningPicker(false);
+          processPickedFiles(pickedFiles);
+        },
+        onError: (err) => {
+          setIsOpeningPicker(false);
+          console.warn('Native Google Picker blocked by sandbox/iframe, launching Fallback Flow:', err);
+          // Fallback Flow: Automatically switch to direct REST API with user notice
+          handleFetchViaRestApi(true);
+        },
+      });
+    };
 
     if (!activeToken) {
       requestGoogleAccessToken({
@@ -233,15 +263,7 @@ export const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
           if (resp.access_token) {
             if (onGrantDrivePermission) onGrantDrivePermission(resp.access_token);
             setCustomAccessToken(resp.access_token);
-
-            openGooglePickerPopup({
-              accessToken: resp.access_token,
-              onPicked: (pickedFiles) => processPickedFiles(pickedFiles),
-              onError: () => {
-                // If Picker popup fails in iframe, fallback to direct REST API fetch
-                handleFetchViaRestApi();
-              },
-            });
+            openPickerWithToken(resp.access_token);
           } else {
             setApiError('Vui lòng cấp quyền Google OAuth để mở Google Picker.');
           }
@@ -250,18 +272,7 @@ export const GoogleDrivePicker: React.FC<GoogleDrivePickerProps> = ({
       return;
     }
 
-    openGooglePickerPopup({
-      accessToken: activeToken,
-      onPicked: (pickedFiles) => {
-        setIsOpeningPicker(false);
-        processPickedFiles(pickedFiles);
-      },
-      onError: () => {
-        setIsOpeningPicker(false);
-        // Fallback to direct REST API
-        handleFetchViaRestApi();
-      },
-    });
+    openPickerWithToken(activeToken);
   };
 
   const processPickedFiles = (pickedFiles: any[]) => {
