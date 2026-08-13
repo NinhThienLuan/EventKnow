@@ -44,6 +44,28 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
   if (!isOpen) return null;
 
+  const exchangeTokenWithBackend = async (accessToken: string): Promise<boolean> => {
+    try {
+      const response = await fetch('/api/auth/google/callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken }),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        const errMsg = errJson.error || `HTTP ${response.status}: ${response.statusText}`;
+        setAuthError(`Lỗi trao đổi token với Backend: ${errMsg}`);
+        return false;
+      }
+
+      return true;
+    } catch (err: any) {
+      setAuthError(`Lỗi kết nối Backend: ${err.message || err}`);
+      return false;
+    }
+  };
+
   const handleRealGoogleOAuth = async () => {
     setIsLoading(true);
     setAuthError(null);
@@ -51,6 +73,11 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     try {
       const fbResult = await signInWithGoogleFirebase();
       if (fbResult?.accessToken) {
+        const ok = await exchangeTokenWithBackend(fbResult.accessToken);
+        if (!ok) {
+          setIsLoading(false);
+          return;
+        }
         setIsLoading(false);
         const googleUser: UserProfile = {
           name: fbResult.user.displayName || user.name || 'Luân Ninh',
@@ -74,9 +101,12 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
     requestGoogleAccessToken({
       scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file',
-      callback: (resp) => {
-        setIsLoading(false);
+      callback: async (resp) => {
         if (resp.access_token) {
+          const ok = await exchangeTokenWithBackend(resp.access_token);
+          setIsLoading(false);
+          if (!ok) return;
+
           const googleUser: UserProfile = {
             name: user.name || 'Luân Ninh',
             email: user.email || 'luanninh2005@gmail.com',
@@ -92,6 +122,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           };
           onLogin(googleUser);
         } else {
+          setIsLoading(false);
           const errDetail = resp.error?.message || resp.error || 'Xác thực Google OAuth không thành công';
           setAuthError(`Lỗi OAuth: ${errDetail}. Quý khách có thể dán Google OAuth Access Token trực tiếp bên dưới.`);
           setShowManualInput(true);
@@ -100,8 +131,13 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     });
   };
 
-  const handleApplyManualToken = () => {
+  const handleApplyManualToken = async () => {
     if (!manualTokenInput.trim()) return;
+    setIsLoading(true);
+    const ok = await exchangeTokenWithBackend(manualTokenInput.trim());
+    setIsLoading(false);
+    if (!ok) return;
+
     const googleUser: UserProfile = {
       name: user.name || 'Luân Ninh',
       email: user.email || 'luanninh2005@gmail.com',
@@ -117,6 +153,14 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     };
     onLogin(googleUser);
     setAuthError(null);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' }).catch(() => { });
+    } finally {
+      onLogout();
+    }
   };
 
   return (
@@ -217,7 +261,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               {/* Actions */}
               <div className="flex items-center justify-between pt-2">
                 <button
-                  onClick={onLogout}
+                  onClick={handleLogout}
                   className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50 rounded-lg border border-red-200 transition-colors cursor-pointer"
                 >
                   <LogOut className="w-3.5 h-3.5" />
