@@ -102,7 +102,14 @@ public class PermissionFilterService {
         }
 
         String refreshToken = driveTokenService.decryptToken(connOpt.get().getRefreshTokenEncrypted());
-        String accessToken = refreshAccessToken(refreshToken, uploaderEmail);
+        String accessToken;
+        try {
+            accessToken = refreshAccessToken(refreshToken, uploaderEmail);
+        } catch (Exception e) {
+            log.warn("Failed to refresh Drive token for permission check, using decrypted token directly: {}",
+                    e.getMessage());
+            accessToken = refreshToken;
+        }
 
         // Call Drive permissions.list
         Map<?, ?> response;

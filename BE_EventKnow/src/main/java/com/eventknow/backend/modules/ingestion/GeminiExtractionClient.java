@@ -33,7 +33,7 @@ public class GeminiExtractionClient {
     @Value("classpath:gemini_extraction_prompt.md")
     private Resource promptResource;
 
-    private final RestClient restClient = RestClient.builder().build();
+    private final RestClient restClient;
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Retry retry;
 
@@ -61,6 +61,14 @@ public class GeminiExtractionClient {
     }
 
     public GeminiExtractionClient() {
+        org.springframework.http.client.SimpleClientHttpRequestFactory requestFactory = new org.springframework.http.client.SimpleClientHttpRequestFactory();
+        requestFactory.setConnectTimeout(60000); // 60s connect timeout
+        requestFactory.setReadTimeout(120000); // 120s read timeout
+
+        this.restClient = RestClient.builder()
+                .requestFactory(requestFactory)
+                .build();
+
         // Build resilient programmatic retry config
         RetryConfig config = RetryConfig.custom()
                 .maxAttempts(3)

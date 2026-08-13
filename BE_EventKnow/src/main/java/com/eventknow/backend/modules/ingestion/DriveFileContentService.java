@@ -46,7 +46,14 @@ public class DriveFileContentService {
             throw new DriveConnectionExpiredException("Decrypted refresh token is empty for email: " + ownerEmail);
         }
 
-        String accessToken = refreshAccessToken(decryptedRefreshToken, ownerEmail);
+        String accessToken;
+        try {
+            accessToken = refreshAccessToken(decryptedRefreshToken, ownerEmail);
+        } catch (DriveConnectionExpiredException e) {
+            log.warn("Failed to refresh Google token (might be a short-lived access token). Using it directly: {}",
+                    e.getMessage());
+            accessToken = decryptedRefreshToken;
+        }
         return downloadContent(googleDriveFileId, accessToken);
     }
 

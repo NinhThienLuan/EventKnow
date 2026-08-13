@@ -1,4 +1,4 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Upload,
   Link,
@@ -18,12 +18,14 @@ import {
 } from 'lucide-react';
 import { translations } from '../data/translations';
 import { UserProfile } from './GoogleAuthModal';
+import { DriveFileItem } from './GoogleDrivePicker';
+import { uploadExcelFile, ingestDriveFile, fetchIngestionStatus } from '../lib/ingestApi';
 
 interface UploadViewProps {
   language: 'VN' | 'EN';
   onExtractionComplete?: (fileName: string, dept: string) => void;
   userProfile?: UserProfile;
-  onOpenDrivePicker?: () => void;
+  onOpenDrivePicker?: (onImport: (files: DriveFileItem[]) => void) => void;
   onOpenAuthModal?: () => void;
 }
 
@@ -32,7 +34,7 @@ interface UploadItem {
   fileName: string;
   time: string;
   department: string;
-  status: 'PROCESSED' | 'EXTRACTING' | 'ERROR';
+  status: 'PROCESSED' | 'EXTRACTING' | 'ERROR' | 'TIMEOUT';
   errorDetail?: string;
 }
 
@@ -46,13 +48,24 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const t = translations[language];
   const [activeTab, setActiveTab] = useState<'FILE' | 'DRIVE'>('FILE');
   const [selectedDepartment, setSelectedDepartment] = useState('HR - Human Resources');
-  const [driveUrl, setDriveUrl] = useState('');
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<{ file: File; id: string }[]>([]);
+  const [selectedDriveFiles, setSelectedDriveFiles] = useState<DriveFileItem[]>([]);
   const [isExtracting, setIsExtracting] = useState(false);
   const [selectedErrorLog, setSelectedErrorLog] = useState<{ file: string; detail: string } | null>(null);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const pollingTimers = useRef<Record<string, any>>({});
+
+  // Cleanup timers on unmount
+  useEffect(() => {
+    return () => {
+      if (pollingTimers.current) {
+        Object.values(pollingTimers.current).forEach(interval => clearInterval(interval as any));
+      }
+    };
+  }, []);
+
 
   const [recentUploads, setRecentUploads] = useState<UploadItem[]>([
     {
@@ -118,47 +131,142 @@ export const UploadView: React.FC<UploadViewProps> = ({
     setUploadedFiles(prev => prev.filter(f => f.id !== id));
   };
 
-  const handleStartExtraction = () => {
-    if (activeTab === 'FILE' && uploadedFiles.length === 0) {
-      alert(language === 'VN' ? 'Vui lòng chọn ít nhất 1 file để trích xuất!' : 'Please select at least 1 file to extract!');
-      return;
+  const handleRemoveDriveFile = (id: string) => {
+    setSelectedDriveFiles(prev => prev.filter(f => f.id !== id));
+  };
+
+  const handleOpenDrivePicker = () => {
+    if (onOpenDrivePicker) {
+      onOpenDrivePicker((importedFiles) => {
+        // Filter out sheets/spreadsheets
+        const sheets = importedFiles.filter(
+          f => f.mimeType === 'spreadsheet' || f.name.endsWith('.xlsx') || f.name.endsWith('.csv')
+        );
+        setSelectedDriveFiles(prev => {
+          const combined = [...prev];
+          sheets.forEach(file => {
+            if (!combined.some(f => f.id === file.id)) {
+              combined.push(file);
+            }
+          });
+          return combined;
+        });
+      });
     }
-    if (activeTab === 'DRIVE' && !driveUrl.trim()) {
-      alert(language === 'VN' ? 'Vui lòng nhập đường dẫn Google Drive hợp lệ!' : 'Please enter a valid Google Drive URL!');
+  };
+
+  const startPolling = (rawEventId: string, fileName: string, dept: string) => {
+    if (pollingTimers.current[rawEventId]) return;
+
+    let elapsed = 0;
+    const interval = setInterval(async () => {
+      elapsed += 3000;
+      try {
+        const progress = await fetchIngestionStatus(rawEventId);
+
+        if (progress.status === 'DONE') {
+          clearInterval(interval);
+          delete pollingTimers.current[rawEventId];
+
+          setRecentUploads(prev => prev.map(u => u.id === rawEventId ? { ...u, status: 'PROCESSED' } : u));
+          if (onExtractionComplete) {
+            onExtractionComplete(fileName, dept);
+          }
+        } else if (progress.status === 'FAILED') {
+          clearInterval(interval);
+          delete pollingTimers.current[rawEventId];
+
+          setRecentUploads(prev => prev.map(u => u.id === rawEventId ? {
+            ...u,
+            status: 'ERROR',
+            errorDetail: progress.errorMessage || 'Lỗi trích xuất kịch bản sự kiện'
+          } : u));
+        }
+      } catch (err: any) {
+        clearInterval(interval);
+        delete pollingTimers.current[rawEventId];
+
+        setRecentUploads(prev => prev.map(u => u.id === rawEventId ? {
+          ...u,
+          status: 'ERROR',
+          errorDetail: err.message || 'Lỗi kiểm tra tiến trình'
+        } : u));
+      }
+
+      // Check timeout (10 minutes)
+      if (elapsed >= 600000) {
+        clearInterval(interval);
+        delete pollingTimers.current[rawEventId];
+
+        setRecentUploads(prev => prev.map(u => u.id === rawEventId ? {
+          ...u,
+          status: 'TIMEOUT',
+          errorDetail: 'Tiến trình đang chạy ngầm trên máy chủ. Vui lòng tải lại kiểm tra tiến độ sau vài phút.'
+        } : u));
+      }
+    }, 3000);
+
+    pollingTimers.current[rawEventId] = interval;
+  };
+
+  const handleStartExtraction = async () => {
+    const filesToProcess = activeTab === 'FILE'
+      ? uploadedFiles.map(f => ({ id: f.id, name: f.file.name, file: f.file, type: 'FILE' as const }))
+      : selectedDriveFiles.map(f => ({ id: f.id, name: f.name, fileId: f.id, type: 'DRIVE' as const }));
+
+    if (filesToProcess.length === 0) {
+      alert(language === 'VN' ? 'Vui lòng chọn ít nhất 1 file để trích xuất!' : 'Please select at least 1 file to extract!');
       return;
     }
 
     setIsExtracting(true);
 
-    const newFileName = activeTab === 'FILE'
-      ? uploadedFiles[0].file.name
-      : driveUrl.split('/').pop() || 'Drive_Document_Extracted.xlsx';
+    const deptTag = selectedDepartment ? selectedDepartment.split('-')[0].trim() : 'Auto';
 
-    const newId = Math.random().toString(36).substring(7);
+    try {
+      for (const item of filesToProcess) {
+        const tempId = 'temp_' + Math.random().toString(36).substring(7);
 
-    // Add item with EXTRACTING state
-    const newItem: UploadItem = {
-      id: newId,
-      fileName: newFileName,
-      time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-      department: selectedDepartment.split('-')[0].trim(),
-      status: 'EXTRACTING'
-    };
+        // Add dummy entry in table
+        const initialItem: UploadItem = {
+          id: tempId,
+          fileName: item.name,
+          time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          department: deptTag,
+          status: 'EXTRACTING'
+        };
 
-    setRecentUploads(prev => [newItem, ...prev]);
+        setRecentUploads(prev => [initialItem, ...prev]);
 
-    // Simulate extraction delay
-    setTimeout(() => {
-      setRecentUploads(prev =>
-        prev.map(item => item.id === newId ? { ...item, status: 'PROCESSED' } : item)
-      );
+        try {
+          let initResp;
+          if (item.type === 'FILE') {
+            initResp = await uploadExcelFile(item.file, selectedDepartment || null);
+          } else {
+            initResp = await ingestDriveFile(item.fileId, selectedDepartment || null);
+          }
+
+          const rawEventId = initResp.rawEventId;
+
+          // Swap ID to the database RAW event ID
+          setRecentUploads(prev => prev.map(u => u.id === tempId ? { ...u, id: rawEventId } : u));
+
+          // Start polling
+          startPolling(rawEventId, item.name, selectedDepartment);
+        } catch (err: any) {
+          // Immediately set error
+          setRecentUploads(prev => prev.map(u => u.id === tempId ? {
+            ...u,
+            status: 'ERROR',
+            errorDetail: err.message || 'Lỗi khởi chạy tiến trình'
+          } : u));
+        }
+      }
+    } finally {
       setIsExtracting(false);
       setUploadedFiles([]);
-      setDriveUrl('');
-      if (onExtractionComplete) {
-        onExtractionComplete(newFileName, selectedDepartment);
-      }
-    }, 2800);
+      setSelectedDriveFiles([]);
+    }
   };
 
   return (
@@ -185,11 +293,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
             <div className="flex items-center gap-2 border-b border-[#DCE1E6] pb-3">
               <button
                 onClick={() => setActiveTab('FILE')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  activeTab === 'FILE'
-                    ? 'bg-white text-[#00344c] shadow-2xs border border-[#DCE1E6]'
-                    : 'text-[#41474d] hover:bg-white/50'
-                }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'FILE'
+                  ? 'bg-white text-[#00344c] shadow-2xs border border-[#DCE1E6]'
+                  : 'text-[#41474d] hover:bg-white/50'
+                  }`}
               >
                 <FileText className="w-4 h-4 text-[#1b4b66]" />
                 <span>Tải lên file</span>
@@ -197,11 +304,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
               <button
                 onClick={() => setActiveTab('DRIVE')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                  activeTab === 'DRIVE'
-                    ? 'bg-white text-[#00344c] shadow-2xs border border-[#DCE1E6]'
-                    : 'text-[#41474d] hover:bg-white/50'
-                }`}
+                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-all cursor-pointer ${activeTab === 'DRIVE'
+                  ? 'bg-white text-[#00344c] shadow-2xs border border-[#DCE1E6]'
+                  : 'text-[#41474d] hover:bg-white/50'
+                  }`}
               >
                 <Link className="w-4 h-4 text-[#5B4B8A]" />
                 <span>Dán link Drive</span>
@@ -214,11 +320,10 @@ export const UploadView: React.FC<UploadViewProps> = ({
                 onDragOver={handleDragOver}
                 onDragLeave={handleDragLeave}
                 onDrop={handleDrop}
-                className={`border-2 border-dashed rounded-xl p-8 lg:p-12 text-center transition-all bg-white flex flex-col items-center justify-center space-y-3 cursor-pointer ${
-                  isDragging
-                    ? 'border-[#00344c] bg-[#edf4ff]'
-                    : 'border-[#c1c7cd] hover:border-[#1b4b66] hover:bg-[#F8FAFC]'
-                }`}
+                className={`border-2 border-dashed rounded-xl p-8 lg:p-12 text-center transition-all bg-white flex flex-col items-center justify-center space-y-3 cursor-pointer ${isDragging
+                  ? 'border-[#00344c] bg-[#edf4ff]'
+                  : 'border-[#c1c7cd] hover:border-[#1b4b66] hover:bg-[#F8FAFC]'
+                  }`}
                 onClick={() => fileInputRef.current?.click()}
               >
                 <input
@@ -256,7 +361,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
                 </button>
               </div>
             ) : (
-              /* TAB 2: DRIVE LINK INPUT & OAUTH PICKER */
+              /* TAB 2: DRIVE FILE INGESTION (PICKER ONLY) */
               <div className="bg-white border border-[#DCE1E6] rounded-xl p-6 space-y-5">
                 {/* Drive OAuth Picker Launch Card */}
                 <div className="bg-[#00344c] text-white rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 shadow-sm">
@@ -266,115 +371,68 @@ export const UploadView: React.FC<UploadViewProps> = ({
                     </div>
                     <div>
                       <h4 className="text-sm font-bold">
-                        {language === 'VN' ? 'Đồng bộ trực tiếp Google Drive OAuth 2.0' : 'Direct Google Drive Sync'}
+                        {language === 'VN' ? 'Đồng bộ Google Drive (Safe Scope)' : 'Secure Google Drive Sync'}
                       </h4>
                       <p className="text-xs text-[#A0AEC0] mt-0.5">
                         {userProfile?.isLoggedIn
                           ? (language === 'VN'
-                              ? `Đã kết nối tài khoản (${userProfile.email})`
-                              : `Connected account (${userProfile.email})`)
+                            ? `Đã kết nối tài khoản (${userProfile.email})`
+                            : `Connected account (${userProfile.email})`)
                           : (language === 'VN'
-                              ? 'Chưa kết nối tài khoản. Vui lòng xác thực OAuth để chọn tệp trực tiếp.'
-                              : 'Not connected. Authenticate OAuth to pick files directly.')}
+                            ? 'Chưa kết nối tài khoản. Vui lòng xác thực OAuth để chọn tệp trực tiếp.'
+                            : 'Not connected. Authenticate OAuth to pick files directly.')}
                       </p>
                     </div>
                   </div>
 
                   <button
-                    onClick={onOpenDrivePicker}
+                    onClick={handleOpenDrivePicker}
                     className="w-full sm:w-auto shrink-0 flex items-center justify-center gap-2 bg-emerald-500 hover:bg-emerald-600 text-[#00344c] font-bold text-xs px-4 py-2.5 rounded-lg transition-all shadow-2xs cursor-pointer"
                   >
                     <HardDrive className="w-4 h-4" />
-                    <span>{language === 'VN' ? 'Mở Bộ chọn tệp Google Drive' : 'Open Google Drive Picker'}</span>
+                    <span>{language === 'VN' ? 'Mở Google Picker' : 'Open Google Picker'}</span>
                   </button>
                 </div>
 
                 <div className="relative flex items-center justify-center">
                   <div className="border-t border-[#DCE1E6] w-full" />
                   <span className="bg-white px-3 text-[10px] font-mono text-[#72787e] uppercase shrink-0">
-                    {language === 'VN' ? 'Hoặc dán URL công khai' : 'Or paste public URL'}
+                    {language === 'VN' ? 'Tệp Google Drive đã chọn' : 'Selected Google Drive Files'}
                   </span>
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="text-caption-xs font-semibold text-[#00344c] uppercase tracking-wide block">
-                    Đường dẫn tệp Google Drive
-                  </label>
-                  <div className="relative flex items-center">
-                    <Link className="w-4 h-4 text-[#72787e] absolute left-3" />
-                    <input
-                      type="url"
-                      value={driveUrl}
-                      onChange={e => setDriveUrl(e.target.value)}
-                      placeholder="https://drive.google.com/file/d/1a2b3c4d5e6f.../view?usp=sharing"
-                      className="w-full pl-9 pr-3 py-2 text-xs font-body bg-[#F8FAFC] border border-[#DCE1E6] rounded-lg text-[#0f1d28] focus:outline-none focus:border-[#00344c] focus:bg-white transition-all"
-                    />
-                  </div>
-                </div>
-
-                <div className="bg-[#edf4ff] p-3 rounded-lg flex items-start gap-2.5 text-xs text-[#1b4b66]">
-                  <Info className="w-4 h-4 shrink-0 mt-0.5" />
-                  <p>
-                    Đảm bảo file Google Drive của bạn đã được cài đặt chế độ chia sẻ <strong>&quot;Bất kỳ ai có liên kết&quot;</strong> để hệ thống EventKnow trích xuất tự động.
-                  </p>
-                </div>
-
-                {/* Quick Google Drive File List Selector */}
-                <div className="space-y-2 pt-1 border-t border-[#DCE1E6]">
-                  <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-bold text-[#00344c] uppercase tracking-wide">
-                      Tệp đề xuất từ Google Drive cá nhân:
-                    </span>
-                    <button
-                      onClick={onOpenDrivePicker}
-                      className="text-[11px] font-bold text-[#1b4b66] hover:underline cursor-pointer flex items-center gap-1"
-                    >
-                      <span>Xem tất cả tệp</span>
-                      <ExternalLink className="w-3 h-3" />
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                    {[
-                      { name: 'Danh_Sach_Dai_Bieu_Hoi_Thao_Sankei_2026.xlsx', type: 'Sheets', size: '1.4 MB' },
-                      { name: 'Kich_Ban_Dieu_Hanh_Event_Sankei_Building.docx', type: 'Docs', size: '850 KB' },
-                      { name: 'Bao_Cao_Ngan_Sach_Su_Kien_Q3_Draft.xlsx', type: 'Sheets', size: '2.1 MB' },
-                      { name: 'Ho_So_Cap_Phep_An_Ninh_To_Chuc_Su_Kien.pdf', type: 'PDF', size: '4.8 MB' },
-                    ].map((file) => (
-                      <div
-                        key={file.name}
-                        onClick={() => {
-                          setDriveUrl(`https://drive.google.com/file/d/${file.name}/view`);
-                        }}
-                        className={`p-2.5 rounded-lg border text-xs flex items-center justify-between gap-2 cursor-pointer transition-all ${
-                          driveUrl.includes(file.name)
-                            ? 'bg-amber-50 border-amber-300 shadow-2xs'
-                            : 'bg-[#F8FAFC] border-[#DCE1E6] hover:bg-white hover:border-[#00344c]'
-                        }`}
-                      >
-                        <div className="min-w-0 flex-1">
-                          <p className="font-bold text-[#0f1d28] truncate text-[11px]">{file.name}</p>
-                          <p className="text-[10px] text-[#72787e] font-mono mt-0.5">
-                            {file.type} • {file.size}
-                          </p>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDriveUrl(`https://drive.google.com/file/d/${file.name}/view`);
-                          }}
-                          className={`text-[10px] font-bold px-2 py-1 rounded transition-colors shrink-0 cursor-pointer ${
-                            driveUrl.includes(file.name)
-                              ? 'bg-[#00344c] text-white'
-                              : 'bg-white text-[#00344c] border border-[#DCE1E6] hover:bg-[#EEF1F4]'
-                          }`}
+                {/* Selected Drive Files Queue */}
+                <div className="space-y-2">
+                  {selectedDriveFiles.length > 0 ? (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      {selectedDriveFiles.map((file) => (
+                        <div
+                          key={file.id}
+                          className="p-2.5 rounded-lg border border-emerald-300 bg-emerald-50/20 text-xs flex items-center justify-between gap-2 shadow-3xs"
                         >
-                          {driveUrl.includes(file.name) ? 'Đã chọn' : 'Chọn tệp'}
-                        </button>
-                      </div>
-                    ))}
-                  </div>
+                          <div className="min-w-0 flex-1">
+                            <p className="font-bold text-[#0f1d28] truncate text-[11px]">{file.name}</p>
+                            <p className="text-[10px] text-[#72787e] font-mono mt-0.5">
+                              {file.size}
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => handleRemoveDriveFile(file.id)}
+                            className="text-gray-400 hover:text-red-500 p-1 rounded"
+                            title="Xóa"
+                          >
+                            <X className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-6 text-xs text-gray-500 italic bg-[#F8FAFC] border border-dashed border-[#DCE1E6] rounded-xl flex flex-col items-center justify-center gap-1">
+                      <HardDrive className="w-5 h-5 text-gray-400" />
+                      <span>{language === 'VN' ? 'Chưa chọn tệp kịch bản nào từ Google Drive.' : 'No Google Drive sheets selected.'}</span>
+                    </div>
+                  )}
                 </div>
               </div>
             )}
@@ -436,9 +494,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
               <button
                 onClick={handleStartExtraction}
                 disabled={isExtracting}
-                className={`flex items-center justify-center gap-2 px-6 py-2.5 bg-[#00344c] text-white font-semibold text-xs rounded-lg hover:bg-[#1b4b66] transition-all shadow-xs cursor-pointer ${
-                  isExtracting ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.01] active:scale-[0.99]'
-                }`}
+                className={`flex items-center justify-center gap-2 px-6 py-2.5 bg-[#00344c] text-white font-semibold text-xs rounded-lg hover:bg-[#1b4b66] transition-all shadow-xs cursor-pointer ${isExtracting ? 'opacity-70 cursor-not-allowed' : 'hover:scale-[1.01] active:scale-[0.99]'
+                  }`}
               >
                 {isExtracting ? (
                   <>

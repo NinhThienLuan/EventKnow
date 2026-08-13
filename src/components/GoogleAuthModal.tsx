@@ -44,7 +44,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
   if (!isOpen) return null;
 
-  const exchangeTokenWithBackend = async (accessToken: string): Promise<boolean> => {
+  const exchangeTokenWithBackend = async (accessToken: string): Promise<any | null> => {
     try {
       const response = await fetch('/api/auth/google/callback', {
         method: 'POST',
@@ -56,13 +56,13 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
         const errJson = await response.json().catch(() => ({}));
         const errMsg = errJson.error || `HTTP ${response.status}: ${response.statusText}`;
         setAuthError(`Lỗi trao đổi token với Backend: ${errMsg}`);
-        return false;
+        return null;
       }
 
-      return true;
+      return response.json();
     } catch (err: any) {
       setAuthError(`Lỗi kết nối Backend: ${err.message || err}`);
-      return false;
+      return null;
     }
   };
 
@@ -73,16 +73,16 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     try {
       const fbResult = await signInWithGoogleFirebase();
       if (fbResult?.accessToken) {
-        const ok = await exchangeTokenWithBackend(fbResult.accessToken);
-        if (!ok) {
+        const backendUser = await exchangeTokenWithBackend(fbResult.accessToken);
+        if (!backendUser) {
           setIsLoading(false);
           return;
         }
         setIsLoading(false);
         const googleUser: UserProfile = {
-          name: fbResult.user.displayName || user.name || 'Luân Ninh',
-          email: fbResult.user.email || user.email || 'luanninh2005@gmail.com',
-          picture: fbResult.user.photoURL || user.picture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+          name: backendUser.name || fbResult.user.displayName || user.name || 'Luân Ninh',
+          email: backendUser.email || fbResult.user.email || user.email || 'luanninh2005@gmail.com',
+          picture: backendUser.picture || fbResult.user.photoURL || user.picture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
           isLoggedIn: true,
           loginTime: new Date().toLocaleTimeString('vi-VN'),
           accessToken: fbResult.accessToken,
@@ -103,14 +103,14 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
       scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file',
       callback: async (resp) => {
         if (resp.access_token) {
-          const ok = await exchangeTokenWithBackend(resp.access_token);
+          const backendUser = await exchangeTokenWithBackend(resp.access_token);
           setIsLoading(false);
-          if (!ok) return;
+          if (!backendUser) return;
 
           const googleUser: UserProfile = {
-            name: user.name || 'Luân Ninh',
-            email: user.email || 'luanninh2005@gmail.com',
-            picture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+            name: backendUser.name || user.name || 'Luân Ninh',
+            email: backendUser.email || user.email || 'luanninh2005@gmail.com',
+            picture: backendUser.picture || user.picture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
             isLoggedIn: true,
             loginTime: new Date().toLocaleTimeString('vi-VN'),
             accessToken: resp.access_token,
@@ -134,14 +134,14 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
   const handleApplyManualToken = async () => {
     if (!manualTokenInput.trim()) return;
     setIsLoading(true);
-    const ok = await exchangeTokenWithBackend(manualTokenInput.trim());
+    const backendUser = await exchangeTokenWithBackend(manualTokenInput.trim());
     setIsLoading(false);
-    if (!ok) return;
+    if (!backendUser) return;
 
     const googleUser: UserProfile = {
-      name: user.name || 'Luân Ninh',
-      email: user.email || 'luanninh2005@gmail.com',
-      picture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      name: backendUser.name || user.name || 'Luân Ninh',
+      email: backendUser.email || user.email || 'luanninh2005@gmail.com',
+      picture: backendUser.picture || user.picture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
       isLoggedIn: true,
       loginTime: new Date().toLocaleTimeString('vi-VN'),
       accessToken: manualTokenInput.trim(),

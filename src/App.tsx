@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import { ArrowLeft, Plus, FileText, Network } from 'lucide-react';
 import { Header } from './components/Header';
 import { SourceTree } from './components/SourceTree';
@@ -80,21 +80,27 @@ export default function App() {
 
   // Google Drive Picker Modal State
   const [isDrivePickerOpen, setIsDrivePickerOpen] = useState<boolean>(false);
+  const driveImportCallback = useRef<((files: DriveFileItem[]) => void) | null>(null);
 
   const handleImportDriveFiles = (files: DriveFileItem[]) => {
-    const newNames = files.map(f => f.name);
-    setSelectedSources(prev => {
-      const combined = [...prev];
-      newNames.forEach(name => {
-        if (!combined.includes(name)) combined.push(name);
+    if (driveImportCallback.current) {
+      driveImportCallback.current(files);
+      driveImportCallback.current = null;
+    } else {
+      const newNames = files.map(f => f.name);
+      setSelectedSources(prev => {
+        const combined = [...prev];
+        newNames.forEach(name => {
+          if (!combined.includes(name)) combined.push(name);
+        });
+        return combined;
       });
-      return combined;
-    });
-    alert(
-      language === 'VN'
-        ? `Đã trích xuất thành công ${files.length} tệp từ Google Drive vào EventKnow Knowledge Base!`
-        : `Successfully imported ${files.length} files from Google Drive into EventKnow Knowledge Base!`
-    );
+      alert(
+        language === 'VN'
+          ? `Đã trích xuất thành công ${files.length} tệp từ Google Drive vào EventKnow Knowledge Base!`
+          : `Successfully imported ${files.length} files from Google Drive into EventKnow Knowledge Base!`
+      );
+    }
   };
 
   const [activeCategory, setActiveCategory] = useState<string>('data-discovery');
@@ -306,11 +312,10 @@ export default function App() {
                 <div className="flex items-center gap-2 self-end sm:self-auto">
                   <button
                     onClick={() => setSidePanelOpen(!sidePanelOpen)}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer border ${
-                      sidePanelOpen
-                        ? 'bg-[#5B4B8A] text-white border-[#5B4B8A]'
-                        : 'bg-[#EEF1F4] text-[#5B4B8A] border-[#DCE1E6] hover:bg-[#DCE1E6]'
-                    }`}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 text-xs font-bold rounded-md transition-all cursor-pointer border ${sidePanelOpen
+                      ? 'bg-[#5B4B8A] text-white border-[#5B4B8A]'
+                      : 'bg-[#EEF1F4] text-[#5B4B8A] border-[#DCE1E6] hover:bg-[#DCE1E6]'
+                      }`}
                     title={language === 'VN' ? 'Mở/đóng Phân tích kết nối & Bối cảnh' : 'Toggle Connections & Context Panel'}
                   >
                     <Network className="w-3.5 h-3.5" />
@@ -338,7 +343,10 @@ export default function App() {
             <UploadView
               language={language}
               userProfile={userProfile}
-              onOpenDrivePicker={() => setIsDrivePickerOpen(true)}
+              onOpenDrivePicker={(onImport) => {
+                driveImportCallback.current = onImport || null;
+                setIsDrivePickerOpen(true);
+              }}
               onOpenAuthModal={() => setIsAuthModalOpen(true)}
               onExtractionComplete={(fileName) => {
                 // Automatically add to selected sources and refresh

@@ -3,6 +3,7 @@ package com.eventknow.backend.modules.auth;
 import com.eventknow.backend.common.security.CustomUserDetailService;
 import com.eventknow.backend.common.security.JwtProperties;
 import com.eventknow.backend.common.security.JwtService;
+import com.eventknow.backend.model.entity.Audit.UserDriveConnectionEntity;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpHeaders;
@@ -15,7 +16,10 @@ import org.springframework.web.bind.annotation.*;
 import org.springframework.web.client.RestClient;
 
 import java.time.Duration;
+import java.time.LocalDateTime;
+import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Module 4 — Auth Controller.
@@ -35,6 +39,8 @@ public class AuthController {
     private final JwtService jwtService;
     private final CustomUserDetailService userDetailsService;
     private final JwtProperties jwtProperties;
+    private final UserDriveConnectionRepository userDriveConnectionRepository;
+    private final DriveTokenService driveTokenService;
     private final RestClient restClient = RestClient.builder().build();
 
     public record CallbackRequest(String idToken, String accessToken) {
@@ -74,6 +80,30 @@ public class AuthController {
                         .body(Map.of("error", "Invalid or expired Google Token"));
             }
 
+            // If it is an access_token, query Userinfo API to retrieve name and picture
+            if (verifyUrl.contains("access_token") && request.accessToken() != null
+                    && !request.accessToken().trim().isEmpty()) {
+                try {
+                    Map<?, ?> userInfo = restClient.get()
+                            .uri("https://www.googleapis.com/oauth2/v3/userinfo")
+                            .header("Authorization", "Bearer " + request.accessToken().trim())
+                            .retrieve()
+                            .body(Map.class);
+                    if (userInfo != null) {
+                        Map<Object, Object> combined = new java.util.HashMap<>(tokenInfo);
+                        if (userInfo.containsKey("name")) {
+                            combined.put("name", userInfo.get("name"));
+                        }
+                        if (userInfo.containsKey("picture")) {
+                            combined.put("picture", userInfo.get("picture"));
+                        }
+                        tokenInfo = combined;
+                    }
+                } catch (Exception e) {
+                    log.warn("Failed to fetch Google profile details from Userinfo API: {}", e.getMessage());
+                }
+            }
+
             String email = (String) tokenInfo.get("email");
             String emailVerified = (String) tokenInfo.get("email_verified");
 
@@ -106,6 +136,27 @@ public class AuthController {
                     .maxAge(Duration.ofMinutes(jwtProperties.accessTokenExpMinutes()))
                     .sameSite("Lax")
                     .build();
+
+            // Save or update Google Access Token to user_drive_connections table
+            if (request.accessToken() != null && !request.accessToken().trim().isEmpty()) {
+                Optional<UserDriveConnectionEntity> existingOpt = userDriveConnectionRepository
+                        .findByEmailAndRevokedAtIsNull(email);
+                UserDriveConnectionEntity conn;
+                if (existingOpt.isPresent()) {
+                    conn = existingOpt.get();
+                    conn.setRefreshTokenEncrypted(driveTokenService.encryptToken(request.accessToken().trim()));
+                    conn.setConnectedAt(LocalDateTime.now());
+                } else {
+                    conn = UserDriveConnectionEntity.builder()
+                            .email(email)
+                            .refreshTokenEncrypted(driveTokenService.encryptToken(request.accessToken().trim()))
+                            .grantedScopes(List.of("drive.file"))
+                            .connectedAt(LocalDateTime.now())
+                            .build();
+                }
+                userDriveConnectionRepository.save(conn);
+                log.info("Saved Google Drive connection for user: email={}", email);
+            }
 
             log.info("Successfully authenticated user: email={} role={}", email, role);
 
