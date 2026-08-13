@@ -90,3 +90,26 @@ export async function fetchIngestionStatus(
 
     return response.json();
 }
+
+export interface IngestionLogItem {
+    id: string;
+    fileName: string;
+    department: string;
+    status: 'PENDING' | 'PROCESSING' | 'DONE' | 'FAILED';
+    errorMessage?: string;
+    createdAt?: string;
+}
+
+export async function fetchRecentUploads(): Promise<IngestionLogItem[]> {
+    const response = await fetch(`${BASE}/recent`, {
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}: Failed to fetch recent uploads`);
+    }
+
+    const data = await response.json();
+    return data.data || [];
+}

@@ -11,6 +11,7 @@ export interface UserProfile {
   loginTime?: string;
   scopes?: string[];
   accessToken?: string;
+  role?: string;
 }
 
 interface GoogleAuthModalProps {
@@ -86,6 +87,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           isLoggedIn: true,
           loginTime: new Date().toLocaleTimeString('vi-VN'),
           accessToken: fbResult.accessToken,
+          role: backendUser.role,
           scopes: [
             'https://www.googleapis.com/auth/userinfo.profile',
             'https://www.googleapis.com/auth/userinfo.email',
@@ -114,6 +116,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
             isLoggedIn: true,
             loginTime: new Date().toLocaleTimeString('vi-VN'),
             accessToken: resp.access_token,
+            role: backendUser.role,
             scopes: [
               'https://www.googleapis.com/auth/userinfo.profile',
               'https://www.googleapis.com/auth/userinfo.email',
@@ -145,6 +148,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
       isLoggedIn: true,
       loginTime: new Date().toLocaleTimeString('vi-VN'),
       accessToken: manualTokenInput.trim(),
+      role: backendUser.role,
       scopes: [
         'https://www.googleapis.com/auth/userinfo.profile',
         'https://www.googleapis.com/auth/userinfo.email',

@@ -13,6 +13,7 @@ import {
   Users,
   User,
   LogOut,
+  Key,
   Database,
   Folder,
   ChevronRight,
@@ -23,6 +24,7 @@ import {
 } from 'lucide-react';
 import { RECENT_REPORTS_LIST } from '../data/mockData';
 import { translations } from '../data/translations';
+import { UserProfile } from './GoogleAuthModal';
 
 interface SourceTreeProps {
   selectedSourceId: string;
@@ -31,6 +33,9 @@ interface SourceTreeProps {
   language: 'VN' | 'EN';
   activeNavView?: string;
   onSelectNavView?: (viewId: string) => void;
+  isAdmin?: boolean;
+  userProfile?: UserProfile;
+  onOpenAuthModal?: () => void;
 }
 
 interface TreeNode {
@@ -83,11 +88,13 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
   onSelectReport,
   language,
   activeNavView = 'dashboard',
-  onSelectNavView
+  onSelectNavView,
+  isAdmin = true,
+  userProfile,
+  onOpenAuthModal
 }) => {
   const t = translations[language];
   const [activeTab, setActiveTab] = useState<'NAV' | 'DATA'>('NAV');
-  const [isAdmin] = useState<boolean>(true); // Default admin role
 
   const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
     'db-core': true,
@@ -121,11 +128,10 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
       <div className="flex border-b border-[#DCE1E6] bg-[#E2E7EC] p-1.5 gap-1 text-xs shrink-0">
         <button
           onClick={() => setActiveTab('NAV')}
-          className={`flex-1 py-1.5 px-2 rounded-md font-semibold text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-            activeTab === 'NAV'
-              ? 'bg-white text-[#00344c] shadow-2xs border border-[#DCE1E6]'
-              : 'text-[#41474d] hover:text-[#00344c] hover:bg-white/40'
-          }`}
+          className={`flex-1 py-1.5 px-2 rounded-md font-semibold text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${activeTab === 'NAV'
+            ? 'bg-white text-[#00344c] shadow-2xs border border-[#DCE1E6]'
+            : 'text-[#41474d] hover:text-[#00344c] hover:bg-white/40'
+            }`}
         >
           <Compass className="w-3.5 h-3.5 text-[#1b4b66]" />
           <span>{t.tabNavigation}</span>
@@ -133,11 +139,10 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
 
         <button
           onClick={() => setActiveTab('DATA')}
-          className={`flex-1 py-1.5 px-2 rounded-md font-semibold text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
-            activeTab === 'DATA'
-              ? 'bg-white text-[#00344c] shadow-2xs border border-[#DCE1E6]'
-              : 'text-[#41474d] hover:text-[#00344c] hover:bg-white/40'
-          }`}
+          className={`flex-1 py-1.5 px-2 rounded-md font-semibold text-center transition-all cursor-pointer flex items-center justify-center gap-1.5 ${activeTab === 'DATA'
+            ? 'bg-white text-[#00344c] shadow-2xs border border-[#DCE1E6]'
+            : 'text-[#41474d] hover:text-[#00344c] hover:bg-white/40'
+            }`}
         >
           <Layers className="w-3.5 h-3.5 text-[#5B4B8A]" />
           <span>{t.tabData}</span>
@@ -166,11 +171,10 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
                         setActiveTab('DATA');
                       }
                     }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                      isActive
-                        ? 'bg-white text-[#00344c] font-semibold border-l-3 border-[#1b4b66] shadow-2xs'
-                        : 'text-[#41474d] hover:bg-white/60 hover:text-[#00344c]'
-                    }`}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium transition-all cursor-pointer ${isActive
+                      ? 'bg-white text-[#00344c] font-semibold border-l-3 border-[#1b4b66] shadow-2xs'
+                      : 'text-[#41474d] hover:bg-white/60 hover:text-[#00344c]'
+                      }`}
                   >
                     <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#1b4b66]' : 'text-[#72787e]'}`} />
                     <span>{item.label}</span>
@@ -199,11 +203,10 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
                         onClick={() => {
                           if (onSelectNavView) onSelectNavView(item.id);
                         }}
-                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium transition-all cursor-pointer ${
-                          isActive
-                            ? 'bg-white text-[#00344c] font-semibold border-l-3 border-[#1b4b66] shadow-2xs'
-                            : 'text-[#41474d] hover:bg-white/60 hover:text-[#00344c]'
-                        }`}
+                        className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium transition-all cursor-pointer ${isActive
+                          ? 'bg-white text-[#00344c] font-semibold border-l-3 border-[#1b4b66] shadow-2xs'
+                          : 'text-[#41474d] hover:bg-white/60 hover:text-[#00344c]'
+                          }`}
                       >
                         <Icon className={`w-4 h-4 shrink-0 ${isActive ? 'text-[#5B4B8A]' : 'text-[#72787e]'}`} />
                         <span>{item.label}</span>
@@ -275,11 +278,10 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
                           if (node.children) toggleFolder(node.id);
                           onSelectSource(node.id);
                         }}
-                        className={`flex items-center justify-between px-2.5 py-1.5 rounded cursor-pointer transition-colors ${
-                          isSelected
-                            ? 'bg-white text-[#1b4b66] font-semibold border-l-3 border-[#1b4b66] shadow-2xs'
-                            : 'text-[#41474d] hover:bg-white/50'
-                        }`}
+                        className={`flex items-center justify-between px-2.5 py-1.5 rounded cursor-pointer transition-colors ${isSelected
+                          ? 'bg-white text-[#1b4b66] font-semibold border-l-3 border-[#1b4b66] shadow-2xs'
+                          : 'text-[#41474d] hover:bg-white/50'
+                          }`}
                       >
                         <div className="flex items-center gap-2 overflow-hidden">
                           {node.children ? (
@@ -317,11 +319,10 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
                               <div
                                 key={child.id}
                                 onClick={() => onSelectSource(child.id)}
-                                className={`flex items-center justify-between pr-2 py-1 pl-2 rounded cursor-pointer transition-colors ${
-                                  childSelected
-                                    ? 'bg-white text-[#1b4b66] font-semibold border-l-2 border-[#1b4b66]'
-                                    : 'text-[#41474d] hover:bg-white/50'
-                                }`}
+                                className={`flex items-center justify-between pr-2 py-1 pl-2 rounded cursor-pointer transition-colors ${childSelected
+                                  ? 'bg-white text-[#1b4b66] font-semibold border-l-2 border-[#1b4b66]'
+                                  : 'text-[#41474d] hover:bg-white/50'
+                                  }`}
                               >
                                 <div className="flex items-center gap-2 overflow-hidden">
                                   <Folder className="w-3.5 h-3.5 text-[#72787e] shrink-0" />
@@ -348,26 +349,49 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
 
       {/* User Avatar + Name + Logout at Bottom */}
       <div className="p-3 border-t border-[#DCE1E6] bg-white flex items-center justify-between shrink-0">
-        <div className="flex items-center gap-2.5 overflow-hidden">
-          <div className="w-8 h-8 rounded-full bg-[#1b4b66] text-white flex items-center justify-center font-bold text-xs shrink-0 border border-[#DCE1E6]">
-            <User className="w-4 h-4" />
-          </div>
-          <div className="overflow-hidden">
+        <div
+          onClick={onOpenAuthModal}
+          className="flex items-center gap-2.5 overflow-hidden cursor-pointer hover:opacity-80 transition-opacity flex-1"
+          title={language === 'VN' ? 'Xem chi tiết tài khoản' : 'View account details'}
+        >
+          {userProfile?.isLoggedIn && userProfile.picture ? (
+            <img
+              src={userProfile.picture}
+              alt={userProfile.name}
+              className="w-8 h-8 rounded-full border border-[#DCE1E6] object-cover shrink-0"
+            />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-[#1b4b66] text-white flex items-center justify-center font-bold text-xs shrink-0 border border-[#DCE1E6]">
+              {userProfile?.isLoggedIn ? (
+                <span className="font-bold text-[10px]">LN</span>
+              ) : (
+                <User className="w-4 h-4" />
+              )}
+            </div>
+          )}
+          <div className="overflow-hidden flex-1">
             <p className="text-xs font-semibold text-[#0f1d28] truncate leading-tight">
-              {t.adminRole}
+              {userProfile?.isLoggedIn ? userProfile.name : (language === 'VN' ? 'Chưa đăng nhập' : 'Not signed in')}
             </p>
             <p className="text-[10px] font-mono text-[#72787e] truncate flex items-center gap-1">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 inline-block"></span>
-              EventKnow Core
+              <span className={`w-1.5 h-1.5 rounded-full inline-block ${userProfile?.isLoggedIn ? 'bg-emerald-500' : 'bg-red-500'}`}></span>
+              {userProfile?.isLoggedIn
+                ? (userProfile.role === 'ROLE_ADMIN' ? (language === 'VN' ? 'QTV (Admin)' : 'Admin Role') : (language === 'VN' ? 'Thành viên' : 'User Role'))
+                : (language === 'VN' ? 'Khách ghé thăm' : 'Guest Mode')}
             </p>
           </div>
         </div>
 
         <button
+          onClick={onOpenAuthModal}
           className="p-1.5 text-[#72787e] hover:text-[#00344c] hover:bg-[#EEF1F4] rounded transition-colors cursor-pointer"
-          title={t.logout}
+          title={userProfile?.isLoggedIn ? t.logout : (language === 'VN' ? 'Đăng nhập' : 'Sign in')}
         >
-          <LogOut className="w-4 h-4" />
+          {userProfile?.isLoggedIn ? (
+            <LogOut className="w-4 h-4" />
+          ) : (
+            <Key className="w-4 h-4 text-amber-600" />
+          )}
         </button>
       </div>
     </aside>

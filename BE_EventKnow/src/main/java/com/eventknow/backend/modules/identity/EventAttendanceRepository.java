@@ -2,6 +2,7 @@ package com.eventknow.backend.modules.identity;
 
 import com.eventknow.backend.model.entity.Core.AttendeeProfileEntity;
 import com.eventknow.backend.model.entity.Core.EventAttendanceEntity;
+import com.eventknow.backend.model.entity.Core.OrganizationEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -17,4 +18,8 @@ public interface EventAttendanceRepository extends JpaRepository<EventAttendance
     @Modifying
     @Query("UPDATE EventAttendanceEntity ea SET ea.attendeeProfile = :newProfile WHERE ea.id IN :ids")
     int reassignAttendeeProfiles(@Param("ids") List<UUID> ids, @Param("newProfile") AttendeeProfileEntity newProfile);
+
+    List<EventAttendanceEntity> findByAttendeeProfile(AttendeeProfileEntity attendeeProfile);
+
+    List<EventAttendanceEntity> findByOrganization(OrganizationEntity organization);
 }

@@ -241,4 +241,9 @@ public class IngestService {
         String cleanName = nameWithoutExt.replaceAll("[-_]+", " ").trim();
         return new EventMeta(cleanName, LocalDate.now());
     }
+
+    public List<RawEventEntity> getRecentUploads() {
+        return rawEventRepository.findAll(org.springframework.data.domain.Sort
+                .by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
+    }
 }

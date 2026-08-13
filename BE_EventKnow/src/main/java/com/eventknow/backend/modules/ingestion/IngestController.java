@@ -85,4 +85,25 @@ public class IngestController {
             return ResponseEntity.notFound().build();
         }
     }
+
+    @GetMapping("/recent")
+    public ResponseEntity<Map<String, Object>> getRecentUploads() {
+        java.util.List<com.eventknow.backend.model.entity.Core.RawEventEntity> recent = ingestService
+                .getRecentUploads();
+
+        java.util.List<Map<String, Object>> data = recent.stream().map(re -> {
+            Map<String, Object> map = new HashMap<>();
+            map.put("id", re.getId().toString());
+            map.put("fileName", re.getSourceFileName());
+            map.put("department", re.getDepartment());
+            map.put("status", re.getIngestionStatus().name());
+            map.put("errorMessage", re.getErrorMessage());
+            map.put("createdAt", re.getCreatedAt() != null ? re.getCreatedAt().toString() : "");
+            return map;
+        }).collect(java.util.stream.Collectors.toList());
+
+        Map<String, Object> response = new HashMap<>();
+        response.put("data", data);
+        return ResponseEntity.ok(response);
+    }
 }

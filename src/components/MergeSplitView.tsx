@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   GitMerge,
   Split,
@@ -15,9 +15,15 @@ import {
   History
 } from 'lucide-react';
 import { translations } from '../data/translations';
+import {
+  fetchDuplicateCandidates,
+  mergeEntities,
+  splitEntities
+} from '../lib/identityApi';
 
 interface MergeSplitViewProps {
   language: 'VN' | 'EN';
+  isAdmin?: boolean;
 }
 
 interface MergeCandidate {
@@ -41,81 +47,33 @@ interface MergeCandidate {
   status: 'PENDING_REVIEW' | 'MERGED' | 'REJECTED';
 }
 
-export const MergeSplitView: React.FC<MergeSplitViewProps> = ({ language }) => {
+export const MergeSplitView: React.FC<MergeSplitViewProps> = ({ language, isAdmin = false }) => {
   const t = translations[language];
+
+  if (!isAdmin) {
+    return (
+      <div className="w-full max-w-xl mx-auto p-8 text-center bg-white border border-red-200 rounded-xl space-y-4 my-12 shadow-md">
+        <AlertCircle className="w-12 h-12 text-red-650 mx-auto" />
+        <h2 className="text-lg font-bold text-red-800">{language === 'VN' ? 'TRUY CẬP BỊ HẠN CHẾ' : 'ACCESS RESTRICTED'}</h2>
+        <p className="text-sm text-gray-600">
+          {language === 'VN'
+            ? 'Chỉ quản trị viên hệ thống (ROLE_ADMIN) mới có quyền thực hiện các thao tác gộp và tách hồ sơ.'
+            : 'Only system administrators (ROLE_ADMIN) have permissions to merge or split profiles.'}
+        </p>
+      </div>
+    );
+  }
 
   const [activeTab, setActiveTab] = useState<'CANDIDATES' | 'MERGE_LOGS'>('CANDIDATES');
   const [searchTerm, setSearchTerm] = useState('');
   const [filterType, setFilterType] = useState<'ALL' | 'PERSON' | 'ORG' | 'EVENT'>('ALL');
 
-  const [candidates, setCandidates] = useState<MergeCandidate[]>([
-    {
-      id: 'DEDUPE-001',
-      type: 'PERSON',
-      confidenceScore: 94,
-      primary: {
-        id: 'PROF-101',
-        name: 'GS.TS. Nguyễn Văn An',
-        detail1: 'Viện Công nghệ Thông tin - nguyenvanan@vnu.edu.vn',
-        detail2: 'SĐT: 0912.345.678',
-        eventsCount: 5
-      },
-      secondary: {
-        id: 'PROF-102',
-        name: 'Nguyen Van An (GS.TS)',
-        detail1: 'Institute of IT - an.nv@vnu.edu.vn',
-        detail2: 'SĐT: 0912.345.678',
-        eventsCount: 2
-      },
-      status: 'PENDING_REVIEW'
-    },
-    {
-      id: 'DEDUPE-002',
-      type: 'ORG',
-      confidenceScore: 89,
-      primary: {
-        id: 'ORG-201',
-        name: 'Tập đoàn Điện lực Việt Nam',
-        detail1: 'Domain: evn.com.vn',
-        detail2: 'Mã số thuế: 0100100001',
-        eventsCount: 8
-      },
-      secondary: {
-        id: 'ORG-202',
-        name: 'EVN Group Vietnam',
-        detail1: 'Domain: evn.com.vn',
-        detail2: 'Trụ sở: Hà Nội',
-        eventsCount: 3
-      },
-      status: 'PENDING_REVIEW'
-    },
-    {
-      id: 'DEDUPE-003',
-      type: 'EVENT',
-      confidenceScore: 91,
-      primary: {
-        id: 'EVT-301',
-        name: 'Hội thảo Năng lượng Xanh Q3 2023',
-        detail1: 'Ngày: 15/09/2023 - Phòng Tài chính',
-        detail2: 'Bản ghi: 142 khách',
-        eventsCount: 142
-      },
-      secondary: {
-        id: 'EVT-302',
-        name: 'Hội thảo Năng Lượng Xanh (15-09-2023)',
-        detail1: 'Ngày: 15/09/2023 - Ban Giám đốc',
-        detail2: 'Bản ghi: 89 khách',
-        eventsCount: 89
-      },
-      status: 'PENDING_REVIEW'
-    }
-  ]);
-
+  const [candidates, setCandidates] = useState<MergeCandidate[]>([]);
   const [mergeLogs, setMergeLogs] = useState<any[]>([
     {
-      id: 'LOG-901',
+      id: 'b5be9d33-4f91-4df2-a384-633095392e21',
       mergedAt: '10/08/2026 09:30 AM',
-      mergedBy: 'admin@eventknow.com',
+      mergedBy: 'admin.know@eventknow.gov.vn',
       entityType: 'PERSON',
       primaryName: 'PGS.TS. Trần Thị Bình',
       secondaryName: 'Tran Thi Binh (PGS)',
@@ -123,26 +81,93 @@ export const MergeSplitView: React.FC<MergeSplitViewProps> = ({ language }) => {
     }
   ]);
 
-  const handleConfirmMerge = (id: string) => {
+  useEffect(() => {
+    const loadAllDuplicates = async () => {
+      try {
+        const [peopleDups, orgDups] = await Promise.all([
+          fetchDuplicateCandidates('PERSON', 0.4),
+          fetchDuplicateCandidates('ORGANIZATION', 0.4)
+        ]);
+
+        const mappedPeople = peopleDups.map((dup, idx) => ({
+          id: `DUP-P-${idx}-${dup.idA.slice(0, 4)}`,
+          type: 'PERSON' as const,
+          confidenceScore: Math.round((dup.score || 0.85) * 100),
+          primary: {
+            id: dup.idA,
+            name: dup.nameA,
+            detail1: dup.matchReason || 'Trùng lặp tên/email',
+            detail2: '',
+            eventsCount: 0
+          },
+          secondary: {
+            id: dup.idB,
+            name: dup.nameB,
+            detail1: 'Ứng viên trùng lặp',
+            detail2: '',
+            eventsCount: 0
+          },
+          status: 'PENDING_REVIEW' as const
+        }));
+
+        const mappedOrgs = orgDups.map((dup, idx) => ({
+          id: `DUP-O-${idx}-${dup.idA.slice(0, 4)}`,
+          type: 'ORG' as const,
+          confidenceScore: Math.round((dup.score || 0.8) * 100),
+          primary: {
+            id: dup.idA,
+            name: dup.nameA,
+            detail1: dup.matchReason || 'Trùng lặp tên/tên miền',
+            detail2: '',
+            eventsCount: 0
+          },
+          secondary: {
+            id: dup.idB,
+            name: dup.nameB,
+            detail1: 'Ứng viên trùng lặp',
+            detail2: '',
+            eventsCount: 0
+          },
+          status: 'PENDING_REVIEW' as const
+        }));
+
+        setCandidates([...mappedPeople, ...mappedOrgs]);
+      } catch (err) {
+        console.error('Failed to load duplicate candidates:', err);
+      }
+    };
+    loadAllDuplicates();
+  }, []);
+
+  const handleConfirmMerge = async (id: string) => {
     const candidate = candidates.find(c => c.id === id);
     if (!candidate) return;
 
-    setCandidates(prev =>
-      prev.map(c => (c.id === id ? { ...c, status: 'MERGED' } : c))
-    );
+    try {
+      const beType = candidate.type === 'ORG' ? 'ORGANIZATION' : candidate.type;
+      const res = await mergeEntities(beType, candidate.primary.id, candidate.secondary.id);
 
-    setMergeLogs(prev => [
-      {
-        id: `LOG-${Date.now().toString().slice(-3)}`,
-        mergedAt: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
-        mergedBy: 'admin@eventknow.com',
-        entityType: candidate.type,
-        primaryName: candidate.primary.name,
-        secondaryName: candidate.secondary.name,
-        snapshotLogId: `SNAP-LOG-${Math.floor(1000 + Math.random() * 9000)}`
-      },
-      ...prev
-    ]);
+      setCandidates(prev =>
+        prev.map(c => (c.id === id ? { ...c, status: 'MERGED' } : c))
+      );
+
+      const snapshotId = res.snapshotLogId || res.mergeLogId || `SNAP-LOG-${Math.floor(1000 + Math.random() * 9000)}`;
+
+      setMergeLogs(prev => [
+        {
+          id: res.mergeLogId || `LOG-${Date.now().toString().slice(-3)}`,
+          mergedAt: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' }),
+          mergedBy: 'admin.know@eventknow.gov.vn',
+          entityType: candidate.type,
+          primaryName: candidate.primary.name,
+          secondaryName: candidate.secondary.name,
+          snapshotLogId: snapshotId
+        },
+        ...prev
+      ]);
+    } catch (err: any) {
+      alert(language === 'VN' ? `Lỗi gộp: ${err.message}` : `Merge failed: ${err.message}`);
+    }
   };
 
   const handleRejectMerge = (id: string) => {
@@ -151,13 +176,22 @@ export const MergeSplitView: React.FC<MergeSplitViewProps> = ({ language }) => {
     );
   };
 
-  const handleSplitRecord = (logId: string) => {
-    alert(
-      language === 'VN'
-        ? `Đã khôi phục và tách hồ sơ từ snapshot log ${logId}. Dữ liệu tham dự sự kiện được trả về hồ sơ cũ.`
-        : `Record restored and split from snapshot log ${logId}. Event attendances mapped back.`
-    );
-    setMergeLogs(prev => prev.filter(l => l.id !== logId));
+  const handleSplitRecord = async (logId: string) => {
+    const log = mergeLogs.find(l => l.id === logId);
+    if (!log) return;
+
+    try {
+      await splitEntities(log.id);
+
+      alert(
+        language === 'VN'
+          ? `Đã khôi phục và tách hồ sơ thành công.`
+          : `Record restored and split successfully.`
+      );
+      setMergeLogs(prev => prev.filter(l => l.id !== logId));
+    } catch (err: any) {
+      alert(language === 'VN' ? `Lỗi tách hồ sơ: ${err.message}` : `Split failed: ${err.message}`);
+    }
   };
 
   const filteredCandidates = candidates.filter(c => {
@@ -192,11 +226,10 @@ export const MergeSplitView: React.FC<MergeSplitViewProps> = ({ language }) => {
       <div className="flex border-b border-[#DCE1E6] gap-2 text-xs font-mono font-bold">
         <button
           onClick={() => setActiveTab('CANDIDATES')}
-          className={`pb-2 px-3 flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
-            activeTab === 'CANDIDATES'
-              ? 'border-[#00344c] text-[#00344c]'
-              : 'border-transparent text-[#72787e] hover:text-[#0f1d28]'
-          }`}
+          className={`pb-2 px-3 flex items-center gap-2 border-b-2 transition-all cursor-pointer ${activeTab === 'CANDIDATES'
+            ? 'border-[#00344c] text-[#00344c]'
+            : 'border-transparent text-[#72787e] hover:text-[#0f1d28]'
+            }`}
         >
           <GitMerge className="w-4 h-4" />
           <span>{language === 'VN' ? 'CẶP TRÙNG CẦN DUYỆT' : 'DEDUPE QUEUE'} ({candidates.filter(c => c.status === 'PENDING_REVIEW').length})</span>
@@ -204,11 +237,10 @@ export const MergeSplitView: React.FC<MergeSplitViewProps> = ({ language }) => {
 
         <button
           onClick={() => setActiveTab('MERGE_LOGS')}
-          className={`pb-2 px-3 flex items-center gap-2 border-b-2 transition-all cursor-pointer ${
-            activeTab === 'MERGE_LOGS'
-              ? 'border-[#00344c] text-[#00344c]'
-              : 'border-transparent text-[#72787e] hover:text-[#0f1d28]'
-          }`}
+          className={`pb-2 px-3 flex items-center gap-2 border-b-2 transition-all cursor-pointer ${activeTab === 'MERGE_LOGS'
+            ? 'border-[#00344c] text-[#00344c]'
+            : 'border-transparent text-[#72787e] hover:text-[#0f1d28]'
+            }`}
         >
           <History className="w-4 h-4" />
           <span>{language === 'VN' ? 'NHẬT KÝ GỘP & TÁCH' : 'AUDIT MERGE LOGS'} ({mergeLogs.length})</span>
@@ -253,13 +285,12 @@ export const MergeSplitView: React.FC<MergeSplitViewProps> = ({ language }) => {
           {filteredCandidates.map(item => (
             <div
               key={item.id}
-              className={`bg-white border rounded-xl p-5 shadow-2xs space-y-4 transition-all ${
-                item.status === 'MERGED'
-                  ? 'border-emerald-300 bg-emerald-50/20 opacity-75'
-                  : item.status === 'REJECTED'
+              className={`bg-white border rounded-xl p-5 shadow-2xs space-y-4 transition-all ${item.status === 'MERGED'
+                ? 'border-emerald-300 bg-emerald-50/20 opacity-75'
+                : item.status === 'REJECTED'
                   ? 'border-slate-300 bg-slate-50/50 opacity-60'
                   : 'border-[#DCE1E6]'
-              }`}
+                }`}
             >
               {/* Header Info */}
               <div className="flex items-center justify-between border-b border-[#DCE1E6] pb-3">

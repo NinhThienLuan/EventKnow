@@ -56,6 +56,12 @@ public class IngestServiceIntegrationTest {
         @Autowired
         private AcademicTitleAliasRepository academicTitleAliasRepository;
 
+        @Autowired
+        private com.eventknow.backend.modules.attendee.AttendeeController attendeeController;
+
+        @Autowired
+        private com.eventknow.backend.modules.organization.OrganizationController organizationController;
+
         @MockBean
         private GeminiExtractionClient geminiExtractionClient;
 
@@ -224,6 +230,36 @@ public class IngestServiceIntegrationTest {
                 assertEquals(0L, progress.get("failedJobs"));
                 assertEquals(100.0, progress.get("progressPercent"));
                 assertEquals(100.0, progress.get("progressPercent"));
+        }
+
+        @Test
+        public void testSearchActiveProfiles() {
+                // Seed database first using setup mock
+                testFullIngestionFlow();
+                List<AttendeeProfileEntity> all = attendeeProfileRepository.findAll();
+                System.out.println("ALL ATTENDEES SIZE: " + all.size());
+                List<AttendeeProfileEntity> searchResults = attendeeProfileRepository.searchActiveProfiles("", null,
+                                null);
+                System.out.println("SEARCH RESULTS SIZE: " + searchResults.size());
+                assertFalse(searchResults.isEmpty());
+        }
+
+        @Test
+        public void testControllerGetAttendeesAndOrgs() {
+                testFullIngestionFlow();
+                // Call attendees controller
+                org.springframework.http.ResponseEntity<Map<String, Object>> attResp = attendeeController
+                                .getAttendees("", null, null, "ALL");
+                assertEquals(org.springframework.http.HttpStatus.OK, attResp.getStatusCode());
+                assertNotNull(attResp.getBody());
+                System.out.println("CONTROLLER ATTENDEES RESP: " + attResp.getBody());
+
+                // Call organizations controller
+                org.springframework.http.ResponseEntity<Map<String, Object>> orgResp = organizationController
+                                .getOrganizations("", "ALL");
+                assertEquals(org.springframework.http.HttpStatus.OK, orgResp.getStatusCode());
+                assertNotNull(orgResp.getBody());
+                System.out.println("CONTROLLER ORGS RESP: " + orgResp.getBody());
         }
 
         private void orgRepositoryCheckReset() {

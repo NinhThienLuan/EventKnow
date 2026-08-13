@@ -45,4 +45,11 @@ public interface OrganizationRepository extends JpaRepository<OrganizationEntity
     @Modifying
     @Query(value = "UPDATE organizations SET merged_into_id = :canonicalId WHERE merged_into_id = :secondaryId", nativeQuery = true)
     int propagateMergedInto(@Param("secondaryId") UUID secondaryId, @Param("canonicalId") UUID canonicalId);
+
+    @Query("SELECT o FROM OrganizationEntity o WHERE o.isActive = true " +
+            "AND (:search IS NULL OR :search = '' OR " +
+            "     LOWER(o.orgName) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
+            "     LOWER(o.emailDomain) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
+            "     LOWER(o.normalizedName) LIKE LOWER(CONCAT('%', :search, '%')))")
+    List<OrganizationEntity> searchActiveOrganizations(@Param("search") String search);
 }

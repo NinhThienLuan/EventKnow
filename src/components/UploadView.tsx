@@ -19,7 +19,7 @@ import {
 import { translations } from '../data/translations';
 import { UserProfile } from './GoogleAuthModal';
 import { DriveFileItem } from './GoogleDrivePicker';
-import { uploadExcelFile, ingestDriveFile, fetchIngestionStatus } from '../lib/ingestApi';
+import { uploadExcelFile, ingestDriveFile, fetchIngestionStatus, fetchRecentUploads } from '../lib/ingestApi';
 
 interface UploadViewProps {
   language: 'VN' | 'EN';
@@ -67,37 +67,51 @@ export const UploadView: React.FC<UploadViewProps> = ({
   }, []);
 
 
-  const [recentUploads, setRecentUploads] = useState<UploadItem[]>([
-    {
-      id: '1',
-      fileName: 'Q3_Employee_Roster_Final_v2.xlsx',
-      time: '10:42 AM',
-      department: 'HR Dept',
-      status: 'PROCESSED'
-    },
-    {
-      id: '2',
-      fileName: 'Financial_Report_2023_Draft.csv',
-      time: '09:15 AM',
-      department: 'Finance',
-      status: 'EXTRACTING'
-    },
-    {
-      id: '3',
-      fileName: 'Corrupted_Data_Export.txt',
-      time: 'Yesterday',
-      department: 'IT Dept',
-      status: 'ERROR',
-      errorDetail: 'Schema mismatch on row 42: Column [Event_Date] expected ISO-8601 string, found invalid timestamp.'
-    },
-    {
-      id: '4',
-      fileName: 'Marketing_Campaign_Metrics_Drive.csv',
-      time: 'Oct 12',
-      department: 'Marketing',
-      status: 'PROCESSED'
+  const [recentUploads, setRecentUploads] = useState<UploadItem[]>([]);
+
+  const formatTime = (createdAtStr?: string) => {
+    if (!createdAtStr) return language === 'VN' ? 'Vừa xong' : 'Just now';
+    try {
+      const date = new Date(createdAtStr);
+      const now = new Date();
+      const diffMs = now.getTime() - date.getTime();
+      const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+      if (diffDays === 0) {
+        return date.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      } else if (diffDays === 1) {
+        return language === 'VN' ? 'Hôm qua' : 'Yesterday';
+      } else {
+        return date.toLocaleDateString([], { month: 'short', day: 'numeric' });
+      }
+    } catch {
+      return createdAtStr;
     }
-  ]);
+  };
+
+  const loadRecentUploads = async () => {
+    try {
+      const data = await fetchRecentUploads();
+      const mapped = data.map(re => ({
+        id: re.id,
+        fileName: re.fileName,
+        department: re.department,
+        status: (re.status === 'DONE'
+          ? 'PROCESSED'
+          : re.status === 'FAILED'
+            ? 'ERROR'
+            : 'EXTRACTING') as any,
+        errorDetail: re.errorMessage,
+        time: formatTime(re.createdAt)
+      }));
+      setRecentUploads(mapped);
+    } catch (err) {
+      console.error('Failed to load recent uploads:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadRecentUploads();
+  }, []);
 
   const handleDragOver = (e: React.DragEvent) => {
     e.preventDefault();

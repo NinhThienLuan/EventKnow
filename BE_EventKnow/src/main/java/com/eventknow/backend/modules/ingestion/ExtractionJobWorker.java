@@ -24,7 +24,7 @@ public class ExtractionJobWorker {
     private final ExtractionResultProcessor resultProcessor;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
-    @Scheduled(fixedDelayString = "${eventknow.worker.polling-delay:5000}")
+    @Scheduled(fixedDelayString = "${eventknow.worker.polling-delay:30000}")
     @Transactional
     public void pollAndProcessJobs() {
         List<ExtractionJobEntity> jobs = extractionJobRepository.findTop10ByStatusInOrderByCreatedAtAsc(

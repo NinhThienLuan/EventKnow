@@ -24,9 +24,23 @@ import { MOCK_REPORTS, SUGGESTION_CARDS, RECENT_REPORTS_LIST, MOCK_CITATIONS, MO
 import { AIReport, CitationSource, SuggestionCard } from './types';
 
 export default function App() {
-  const [language, setLanguage] = useState<'VN' | 'EN'>('VN');
+  const [language, setLanguage] = useState<'VN' | 'EN'>(() => {
+    try {
+      const saved = localStorage.getItem('eventknow_language');
+      return (saved === 'VN' || saved === 'EN') ? saved : 'VN';
+    } catch {
+      return 'VN';
+    }
+  });
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
-  const [activeNavView, setActiveNavView] = useState<string>('home');
+  const [activeNavView, setActiveNavView] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('eventknow_active_view');
+      return saved || 'home';
+    } catch {
+      return 'home';
+    }
+  });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [selectedSourceId, setSelectedSourceId] = useState<string>('db-core');
   const [activeSimulatedEmail, setActiveSimulatedEmail] = useState<string>('luanninh2005@gmail.com');
@@ -42,6 +56,62 @@ export default function App() {
     }
   });
 
+  React.useEffect(() => {
+    const fetchMe = async () => {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        if (res.ok) {
+          const data = await res.json();
+          let savedProfile: any = {};
+          try {
+            const savedStr = localStorage.getItem('eventknow_user_profile');
+            if (savedStr) savedProfile = JSON.parse(savedStr);
+          } catch (e) {
+            console.warn('Failed to parse local user profile', e);
+          }
+          const updated: UserProfile = {
+            name: savedProfile.name || data.email.split('@')[0],
+            email: data.email,
+            isLoggedIn: true,
+            role: data.role,
+            picture: data.picture || savedProfile.picture,
+            accessToken: savedProfile.accessToken || data.accessToken,
+            scopes: savedProfile.scopes || data.scopes
+          };
+          setUserProfile(updated);
+          localStorage.setItem('eventknow_user_profile', JSON.stringify(updated));
+        } else {
+          // Verify if we have local cached state that we need to wipe since backend is not authenticated
+          const savedStr = localStorage.getItem('eventknow_user_profile');
+          if (savedStr || userProfile.isLoggedIn) {
+            const loggedOut: UserProfile = { name: '', email: '', isLoggedIn: false };
+            setUserProfile(loggedOut);
+            localStorage.removeItem('eventknow_user_profile');
+          }
+        }
+      } catch (err) {
+        console.warn('Session check failed:', err);
+      }
+    };
+    fetchMe();
+  }, []);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('eventknow_language', language);
+    } catch (e) {
+      console.warn('Failed to save language setting', e);
+    }
+  }, [language]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('eventknow_active_view', activeNavView);
+    } catch (e) {
+      console.warn('Failed to save active view setting', e);
+    }
+  }, [activeNavView]);
+
   const handleSaveUserProfile = (profile: UserProfile) => {
     setUserProfile(profile);
     try {
@@ -51,7 +121,12 @@ export default function App() {
     }
   };
 
-  const handleLogoutUser = () => {
+  const handleLogoutUser = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+    } catch (e) {
+      console.warn('Api logout warning', e);
+    }
     const loggedOut: UserProfile = { name: '', email: '', isLoggedIn: false };
     setUserProfile(loggedOut);
     try {
@@ -272,6 +347,8 @@ export default function App() {
               setActiveNavView(viewId);
               setIsMobileMenuOpen(false);
             }}
+            isAdmin={userProfile.isLoggedIn && userProfile.role === 'ROLE_ADMIN'}
+            userProfile={userProfile}
           />
         </div>
 
@@ -369,11 +446,15 @@ export default function App() {
             <PartnersMgmtView
               language={language}
               onNavigateToMergeSplit={() => setActiveNavView('merge-split')}
+              isAdmin={userProfile.isLoggedIn && userProfile.role === 'ROLE_ADMIN'}
             />
           ) : activeNavView === 'connections' ? (
             <ConnectionsView language={language} />
           ) : activeNavView === 'merge-split' ? (
-            <MergeSplitView language={language} />
+            <MergeSplitView
+              language={language}
+              isAdmin={userProfile.isLoggedIn && userProfile.role === 'ROLE_ADMIN'}
+            />
           ) : activeNavView === 'alias' ? (
             <AliasView language={language} />
           ) : activeNavView === 'mapping' ? (

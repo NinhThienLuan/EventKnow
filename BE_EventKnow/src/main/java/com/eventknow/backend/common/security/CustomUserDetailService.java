@@ -20,6 +20,9 @@ public class CustomUserDetailService implements UserDetailsService {
 
     private final AppAdminRepository appAdminRepository;
 
+    @org.springframework.beans.factory.annotation.Value("${recovery.admin.emails:}")
+    private String recoveryEmailsConfig;
+
     @Override
     public UserDetails loadUserByUsername(String email) throws UsernameNotFoundException {
         List<SimpleGrantedAuthority> authorities = new ArrayList<>();
@@ -32,6 +35,9 @@ public class CustomUserDetailService implements UserDetailsService {
 
         // Recovery Admin override (Break-glass mechanic)
         String recoveryEmails = System.getenv("RECOVERY_ADMIN_EMAILS");
+        if (recoveryEmails == null || recoveryEmails.isEmpty()) {
+            recoveryEmails = recoveryEmailsConfig;
+        }
         if (recoveryEmails != null && !recoveryEmails.isEmpty()) {
             for (String recEmail : recoveryEmails.split(",")) {
                 if (recEmail.trim().equalsIgnoreCase(email)) {

@@ -97,8 +97,9 @@ public class DashboardAggregateService {
         if (isEmptyAccess(visibleIds))
             return 0L;
 
-        String sql = "SELECT COUNT(*) FROM events e" + eventJoinClause(visibleIds)
-                + " WHERE e.is_active = true"
+        String sql = "SELECT COUNT(DISTINCT e.id) FROM events e"
+                + " JOIN raw_events re ON re.event_id = e.id"
+                + " WHERE e.is_active = true AND re.ingestion_status = 'DONE'"
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
                 + rls(visibleIds, "re.id");
@@ -122,6 +123,7 @@ public class DashboardAggregateService {
                 JOIN events e ON re.event_id = e.id
                 WHERE ea.attendee_profile_id IS NOT NULL
                   AND ea.is_deleted_in_source = false
+                  AND re.ingestion_status = 'DONE'
                 """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
@@ -142,6 +144,7 @@ public class DashboardAggregateService {
                 JOIN events e ON re.event_id = e.id
                 WHERE ea.organization_id IS NOT NULL
                   AND ea.is_deleted_in_source = false
+                  AND re.ingestion_status = 'DONE'
                 """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
@@ -196,6 +199,8 @@ public class DashboardAggregateService {
                     JOIN raw_events re ON ea.raw_event_id = re.id
                     JOIN events e ON re.event_id = e.id
                     WHERE ap.is_active = true
+                      AND re.ingestion_status = 'DONE'
+                      AND ea.is_deleted_in_source = false
                     """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
@@ -222,6 +227,8 @@ public class DashboardAggregateService {
                 JOIN events e ON re.event_id = e.id
                 WHERE ap.is_active = true
                   AND ap.attendee_role IS NOT NULL
+                  AND re.ingestion_status = 'DONE'
+                  AND ea.is_deleted_in_source = false
                 """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
@@ -272,10 +279,13 @@ public class DashboardAggregateService {
                        COUNT(DISTINCT e.id) AS event_count,
                        COUNT(DISTINCT resolve_entity_id('PERSON', ea.attendee_profile_id)) AS attendee_count
                 FROM events e
-                LEFT JOIN raw_events re ON re.event_id = e.id
+                JOIN raw_events re ON re.event_id = e.id
                 LEFT JOIN event_attendance ea
-                       ON ea.raw_event_id = re.id AND ea.attendee_profile_id IS NOT NULL
+                       ON ea.raw_event_id = re.id
+                      AND ea.attendee_profile_id IS NOT NULL
+                      AND ea.is_deleted_in_source = false
                 WHERE e.is_active = true
+                  AND re.ingestion_status = 'DONE'
                 """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
@@ -305,6 +315,8 @@ public class DashboardAggregateService {
                 JOIN event_attendance ea ON ea.raw_event_id = re.id
                 WHERE e.is_active = true
                   AND ea.attendee_profile_id IS NOT NULL
+                  AND ea.is_deleted_in_source = false
+                  AND re.ingestion_status = 'DONE'
                 """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
@@ -362,6 +374,7 @@ public class DashboardAggregateService {
                   ON o.id = resolve_entity_id('ORGANIZATION', ea.organization_id)
                 WHERE ea.organization_id IS NOT NULL
                   AND ea.is_deleted_in_source = false
+                  AND re.ingestion_status = 'DONE'
                 """
                 + rls(visibleIds, "re.id")
                 + """

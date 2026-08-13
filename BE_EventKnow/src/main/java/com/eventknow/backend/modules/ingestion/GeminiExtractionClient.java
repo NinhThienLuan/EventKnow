@@ -27,7 +27,7 @@ public class GeminiExtractionClient {
     @Value("${gemini.api.key:}")
     private String geminiApiKey;
 
-    @Value("${gemini.api.model:gemini-3.6-flash}")
+    @Value("${gemini.api.model:gemini-2.5-flash}")
     private String geminiModel;
 
     @Value("classpath:gemini_extraction_prompt.md")
@@ -198,13 +198,26 @@ public class GeminiExtractionClient {
                 + ":generateContent?key=" + geminiApiKey;
 
         log.info("Posting prompt payload to Gemini API model: {}", geminiModel);
-        byte[] responseBytes = restClient.post()
-                .uri(url)
-                .contentType(MediaType.APPLICATION_JSON)
-                .header("User-Agent", "aistudio-build")
-                .body(geminiRequest)
-                .retrieve()
-                .body(byte[].class);
+        byte[] responseBytes = null;
+        try {
+            responseBytes = restClient.post()
+                    .uri(url)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .header("User-Agent", "aistudio-build")
+                    .body(geminiRequest)
+                    .retrieve()
+                    .body(byte[].class);
+        } catch (HttpStatusCodeException hex) {
+            if (hex.getStatusCode().value() == 429) {
+                log.warn("Gemini Rate limit hit (429). Sleeping for 30s before retrying...");
+                try {
+                    Thread.sleep(30000);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                }
+            }
+            throw hex;
+        }
 
         if (responseBytes == null || responseBytes.length == 0) {
             throw new RuntimeException("Empty response received from Gemini API");
