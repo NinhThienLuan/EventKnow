@@ -43,4 +43,17 @@ public interface AttendeeProfileRepository extends JpaRepository<AttendeeProfile
     @Modifying
     @Query(value = "UPDATE attendee_profiles SET merged_into_id = :canonicalId WHERE merged_into_id = :secondaryId", nativeQuery = true)
     int propagateMergedInto(@Param("secondaryId") UUID secondaryId, @Param("canonicalId") UUID canonicalId);
+
+    @Query("SELECT a FROM AttendeeProfileEntity a WHERE a.isActive = true " +
+            "AND (:search IS NULL OR :search = '' OR " +
+            "     LOWER(a.fullName) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
+            "     LOWER(a.email) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
+            "     LOWER(a.organizationTextRaw) LIKE LOWER(CONCAT('%', :search, '%')) OR " +
+            "     LOWER(a.organization.orgName) LIKE LOWER(CONCAT('%', :search, '%')))" +
+            "AND (:role IS NULL OR a.attendeeRole = :role) " +
+            "AND (:status IS NULL OR a.followUpStatus = :status)")
+    List<AttendeeProfileEntity> searchActiveProfiles(
+            @Param("search") String search,
+            @Param("role") com.eventknow.backend.model.entity.Core.AttendeeProfileEntity.AttendeeRole role,
+            @Param("status") com.eventknow.backend.model.entity.Core.AttendeeProfileEntity.FollowUpStatus status);
 }

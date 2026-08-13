@@ -29,38 +29,46 @@ QUY TẮC BẮT BUỘC:
 
 # STRUCTURED OUTPUT JSON SCHEMA
 {
-  "type": "object",
+  "type": "OBJECT",
   "properties": {
     "batch_rows": {
-      "type": "array",
+      "type": "ARRAY",
       "items": {
-        "type": "object",
+        "type": "OBJECT",
         "properties": {
-          "row_number": { "type": "integer" },
+          "row_number": { "type": "INTEGER" },
           "entities": {
-            "type": "array",
+            "type": "ARRAY",
             "items": {
-              "type": "object",
+              "type": "OBJECT",
               "properties": {
-                "entity_type": { "type": "string", "enum": ["PERSON", "ORGANIZATION"] },
-                "full_name": { "type": ["string", "null"] },
-                "email": { "type": ["string", "null"] },
-                "phone": { "type": ["string", "null"] },
-                "academic_title_raw": { "type": ["string", "null"] },
+                "entity_type": { "type": "STRING", "enum": ["PERSON", "ORGANIZATION"] },
+                "full_name": { "type": "STRING", "nullable": true },
+                "email": { "type": "STRING", "nullable": true },
+                "phone": { "type": "STRING", "nullable": true },
+                "academic_title_raw": { "type": "STRING", "nullable": true },
                 "attendee_role": {
-                  "type": ["string", "null"],
-                  "enum": ["SPEAKER", "EXPERT", "GUEST", "SPONSOR", null]
+                  "type": "STRING",
+                  "enum": ["SPEAKER", "EXPERT", "GUEST", "SPONSOR"],
+                  "nullable": true
                 },
-                "position": { "type": ["string", "null"] },
-                "organization_text_raw": { "type": ["string", "null"] },
-                "org_name": { "type": ["string", "null"] },
-                "email_domain": { "type": ["string", "null"] },
+                "position": { "type": "STRING", "nullable": true },
+                "organization_text_raw": { "type": "STRING", "nullable": true },
+                "org_name": { "type": "STRING", "nullable": true },
+                "email_domain": { "type": "STRING", "nullable": true },
                 "dynamic_attributes": {
-                  "type": "object",
-                  "additionalProperties": { "type": ["string", "number", "null"] }
+                  "type": "ARRAY",
+                  "items": {
+                    "type": "OBJECT",
+                    "properties": {
+                      "key": { "type": "STRING" },
+                      "value": { "type": "STRING", "nullable": true }
+                    },
+                    "required": ["key"]
+                  }
                 }
               },
-              "required": ["entity_type", "dynamic_attributes"]
+              "required": ["entity_type"]
             }
           }
         },

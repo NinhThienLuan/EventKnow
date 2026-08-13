@@ -200,4 +200,32 @@ public class AuthController {
                 .header(HttpHeaders.SET_COOKIE, cookie.toString())
                 .body(Map.of("status", "logged_out"));
     }
+
+    /**
+     * GET /api/auth/me
+     *
+     * <p>
+     * Retrieves the current authenticated user session context.
+     * </p>
+     */
+    @GetMapping("/me")
+    public ResponseEntity<?> getMe(org.springframework.security.core.Authentication authentication) {
+        if (authentication == null || !authentication.isAuthenticated()) {
+            return ResponseEntity.status(HttpStatus.UNAUTHORIZED).body(Map.of("error", "Not authenticated"));
+        }
+        String email = authentication.getName();
+        String role = authentication.getAuthorities().stream()
+                .map(GrantedAuthority::getAuthority)
+                .filter(a -> a.equals("ROLE_ADMIN"))
+                .findFirst()
+                .orElse("ROLE_USER");
+
+        boolean hasDriveConnection = userDriveConnectionRepository.findByEmailAndRevokedAtIsNull(email).isPresent();
+
+        return ResponseEntity.ok(Map.of(
+                "email", email,
+                "role", role,
+                "isAppAdmin", "ROLE_ADMIN".equals(role),
+                "hasDriveConnection", hasDriveConnection));
+    }
 }

@@ -10,3 +10,4 @@ docs
 .agents
 .idea
 test
+application-dev.properties

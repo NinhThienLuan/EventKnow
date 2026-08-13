@@ -37,6 +37,11 @@ public class GeminiExtractionClient {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Retry retry;
 
+    public record DynamicAttributeDto(
+            @JsonProperty("key") String key,
+            @JsonProperty("value") String value) {
+    }
+
     public record ExtractedEntity(
             @JsonProperty("entity_type") String entityType,
             @JsonProperty("full_name") String fullName,
@@ -48,7 +53,19 @@ public class GeminiExtractionClient {
             @JsonProperty("organization_text_raw") String organizationTextRaw,
             @JsonProperty("org_name") String orgName,
             @JsonProperty("email_domain") String emailDomain,
-            @JsonProperty("dynamic_attributes") Map<String, Object> dynamicAttributes) {
+            @JsonProperty("dynamic_attributes") List<DynamicAttributeDto> dynamicAttributes) {
+
+        public Map<String, Object> dynamicAttributesMap() {
+            Map<String, Object> map = new java.util.LinkedHashMap<>();
+            if (dynamicAttributes != null) {
+                for (DynamicAttributeDto attr : dynamicAttributes) {
+                    if (attr.key() != null) {
+                        map.put(attr.key(), attr.value());
+                    }
+                }
+            }
+            return map;
+        }
     }
 
     public record BatchRowResult(
@@ -181,17 +198,20 @@ public class GeminiExtractionClient {
                 + ":generateContent?key=" + geminiApiKey;
 
         log.info("Posting prompt payload to Gemini API model: {}", geminiModel);
-        Map<?, ?> rawResponse = restClient.post()
+        byte[] responseBytes = restClient.post()
                 .uri(url)
                 .contentType(MediaType.APPLICATION_JSON)
                 .header("User-Agent", "aistudio-build")
                 .body(geminiRequest)
                 .retrieve()
-                .body(Map.class);
+                .body(byte[].class);
 
-        if (rawResponse == null) {
+        if (responseBytes == null || responseBytes.length == 0) {
             throw new RuntimeException("Empty response received from Gemini API");
         }
+
+        String rawResponseStr = new String(responseBytes, java.nio.charset.StandardCharsets.UTF_8);
+        Map<?, ?> rawResponse = objectMapper.readValue(rawResponseStr, Map.class);
 
         List<?> candidates = (List<?>) rawResponse.get("candidates");
         if (candidates == null || candidates.isEmpty()) {

@@ -62,11 +62,11 @@ public class ExtractionResultProcessor {
                 }
 
                 OrganizationEntity orgEntity = resolveOrCreateOrganization(orgName.trim(), orgEnt.emailDomain(),
-                        orgEnt.dynamicAttributes());
+                        orgEnt.dynamicAttributesMap());
                 localResolvedOrgs.put(orgName.trim().toLowerCase(), orgEntity);
 
                 // Create attendance record for the organization
-                createAttendanceRecord(rawEvent, null, orgEntity, rowNum, orgEnt.dynamicAttributes());
+                createAttendanceRecord(rawEvent, null, orgEntity, rowNum, orgEnt.dynamicAttributesMap());
             }
 
             // 2. Process Persons
@@ -98,7 +98,7 @@ public class ExtractionResultProcessor {
                 // Create attendance record for the person
                 Map<String, Object> snapshotData = new HashMap<>();
                 if (pEnt.dynamicAttributes() != null) {
-                    snapshotData.putAll(pEnt.dynamicAttributes());
+                    snapshotData.putAll(pEnt.dynamicAttributesMap());
                 }
                 snapshotData.put("extracted_full_name", fullName);
                 snapshotData.put("extracted_email", pEnt.email());
@@ -200,7 +200,7 @@ public class ExtractionResultProcessor {
                 .organization(linkedOrg)
                 .organizationTextRaw(pEnt.organizationTextRaw())
                 .followUpStatus(AttendeeProfileEntity.FollowUpStatus.CHUA_LIEN_HE)
-                .dynamicAttributes(pEnt.dynamicAttributes() != null ? pEnt.dynamicAttributes() : new HashMap<>())
+                .dynamicAttributes(pEnt.dynamicAttributes() != null ? pEnt.dynamicAttributesMap() : new HashMap<>())
                 .isActive(true)
                 .build();
 
