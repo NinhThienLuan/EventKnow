@@ -17,6 +17,13 @@ QUY TẮC BẮT BUỘC:
      KHÔNG chắc chắn -> để null, không đoán.
    - position: chức vụ (nếu có).
    - organization_text_raw: tên tổ chức ghi trong row này liên quan đến người này (nếu có), dạng raw string.
+   - research_fields_raw: copy NGUYÊN VĂN cụm từ mô tả lĩnh vực/chuyên môn từ dữ liệu gốc (nếu có cột/ghi chú nhắc tới),
+     TRƯỚC khi phân loại — giữ y hệt bản gốc, không chuẩn hóa.
+   - research_domains: chỉ gán ngành từ tập cố định (AGRITECH/MEDTECH/AI_ML/GREENTECH/VAT_LIEU_MOI/KHAC) NẾU có tín hiệu rõ ràng
+     từ cơ quan công tác, chức danh, hoặc ghi chú trong row. Không chắc chắn -> gán KHAC, KHÔNG bỏ trống.
+     Có thể gán NHIỀU ngành nếu người đó rõ ràng thuộc nhiều lĩnh vực.
+   - expertise_tags: tag chuyên sâu, tự do theo ngữ cảnh (VD "In 3D", "Cấy ghép mô", "Titanium") - CHỈ trích xuất
+     nếu có tín hiệu rõ trong dữ liệu (chức danh, ghi chú, tên đơn vị), KHÔNG tự suy diễn/bịa thêm.
 3. Với ORGANIZATION — chỉ trích:
    - org_name (bắt buộc nếu là ORGANIZATION)
    - email_domain (nếu suy ra được từ email liên hệ, VD "email@vnpt.com.vn" -> "vnpt.com.vn")
@@ -56,6 +63,21 @@ QUY TẮC BẮT BUỘC:
                 "organization_text_raw": { "type": "STRING", "nullable": true },
                 "org_name": { "type": "STRING", "nullable": true },
                 "email_domain": { "type": "STRING", "nullable": true },
+                "research_fields_raw": {
+                  "type": "ARRAY",
+                  "items": { "type": "STRING" }
+                },
+                "research_domains": {
+                  "type": "ARRAY",
+                  "items": {
+                    "type": "STRING",
+                    "enum": ["AGRITECH", "MEDTECH", "AI_ML", "GREENTECH", "VAT_LIEU_MOI", "KHAC"]
+                  }
+                },
+                "expertise_tags": {
+                  "type": "ARRAY",
+                  "items": { "type": "STRING" }
+                },
                 "dynamic_attributes": {
                   "type": "ARRAY",
                   "items": {

@@ -57,6 +57,49 @@ public interface AttendeeProfileRepository extends JpaRepository<AttendeeProfile
                         @Param("role") com.eventknow.backend.model.entity.Core.AttendeeProfileEntity.AttendeeRole role,
                         @Param("status") com.eventknow.backend.model.entity.Core.AttendeeProfileEntity.FollowUpStatus status);
 
+        @Query(value = "SELECT DISTINCT a.* FROM attendee_profiles a " +
+                        "LEFT JOIN organizations org ON a.organization_id = org.id " +
+                        "LEFT JOIN event_attendance ea ON a.id = ea.attendee_profile_id AND ea.is_deleted_in_source = false "
+                        +
+                        "LEFT JOIN raw_events re ON ea.raw_event_id = re.id " +
+                        "WHERE a.is_active = true " +
+                        "  AND (:search IS NULL OR :search = '' OR " +
+                        "       a.full_name ILIKE CONCAT('%', :search, '%') OR " +
+                        "       a.email ILIKE CONCAT('%', :search, '%') OR " +
+                        "       a.organization_text_raw ILIKE CONCAT('%', :search, '%') OR " +
+                        "       org.org_name ILIKE CONCAT('%', :search, '%')) " +
+                        "  AND (:role IS NULL OR :role = '' OR a.attendee_role = :role) " +
+                        "  AND (:status IS NULL OR :status = '' OR a.follow_up_status = :status) " +
+                        "  AND (:domain IS NULL OR :domain = '' OR a.research_domains && CAST(string_to_array(:domain, ',') AS varchar[])) "
+                        +
+                        "  AND (:academicTitle IS NULL OR :academicTitle = '' OR a.academic_title_normalized && CAST(string_to_array(:academicTitle, ',') AS varchar[])) "
+                        +
+                        "  AND (:position IS NULL OR :position = '' OR a.position ILIKE CONCAT('%', :position, '%')) " +
+                        "  AND (:department IS NULL OR :department = '' OR re.department = :department) " +
+                        "  AND (:startDate IS NULL OR :startDate = '' OR re.event_date >= CAST(:startDate AS date)) " +
+                        "  AND (:endDate IS NULL OR :endDate = '' OR re.event_date <= CAST(:endDate AS date))", nativeQuery = true)
+        List<AttendeeProfileEntity> searchActiveProfilesMultivariate(
+                        @Param("search") String search,
+                        @Param("role") String role,
+                        @Param("status") String status,
+                        @Param("domain") String domain,
+                        @Param("academicTitle") String academicTitle,
+                        @Param("position") String position,
+                        @Param("department") String department,
+                        @Param("startDate") String startDate,
+                        @Param("endDate") String endDate);
+
+        @Query(value = "SELECT a.* FROM attendee_profiles a " +
+                        "JOIN events e ON e.id = :eventId " +
+                        "WHERE a.is_active = true " +
+                        "  AND a.expertise_tags && e.topic_tags " +
+                        "ORDER BY (SELECT COUNT(*) FROM (SELECT unnest(a.expertise_tags) INTERSECT SELECT unnest(e.topic_tags)) x) DESC, a.full_name ASC "
+                        +
+                        "LIMIT :limit", nativeQuery = true)
+        List<AttendeeProfileEntity> findRecommendationsForEvent(
+                        @Param("eventId") UUID eventId,
+                        @Param("limit") int limit);
+
         long countByOrganizationAndIsActiveTrue(
                         com.eventknow.backend.model.entity.Core.OrganizationEntity organization);
 }

@@ -53,6 +53,9 @@ public class GeminiExtractionClient {
             @JsonProperty("organization_text_raw") String organizationTextRaw,
             @JsonProperty("org_name") String orgName,
             @JsonProperty("email_domain") String emailDomain,
+            @JsonProperty("research_fields_raw") List<String> researchFieldsRaw,
+            @JsonProperty("research_domains") List<String> researchDomains,
+            @JsonProperty("expertise_tags") List<String> expertiseTags,
             @JsonProperty("dynamic_attributes") List<DynamicAttributeDto> dynamicAttributes) {
 
         public Map<String, Object> dynamicAttributesMap() {

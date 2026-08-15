@@ -54,6 +54,18 @@ public class AttendeeProfileEntity extends BaseEntity {
     @Column(name = "organization_text_raw", length = 500)
     private String organizationTextRaw;
 
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "research_fields_raw")
+    private List<String> researchFieldsRaw;
+
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "research_domains")
+    private List<String> researchDomains;
+
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "expertise_tags")
+    private List<String> expertiseTags;
+
     @Enumerated(EnumType.STRING)
     @Column(name = "follow_up_status", nullable = false, length = 20)
     @Builder.Default

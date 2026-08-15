@@ -38,6 +38,10 @@ public class EventEntity extends BaseEntity {
     @Builder.Default
     private boolean isActive = true;
 
+    @JdbcTypeCode(SqlTypes.ARRAY)
+    @Column(name = "topic_tags")
+    private List<String> topicTags;
+
     @ManyToOne(fetch = FetchType.LAZY)
     @JoinColumn(name = "merged_into_id")
     private EventEntity mergedInto;

@@ -30,40 +30,39 @@ public class AttendeeController {
             @RequestParam(value = "search", required = false, defaultValue = "") String search,
             @RequestParam(value = "role", required = false) String role,
             @RequestParam(value = "status", required = false) String status,
-            @RequestParam(value = "academicTitle", required = false, defaultValue = "ALL") String academicTitle) {
+            @RequestParam(value = "academicTitle", required = false, defaultValue = "ALL") String academicTitle,
+            @RequestParam(value = "domain", required = false) String domain,
+            @RequestParam(value = "position", required = false) String position,
+            @RequestParam(value = "department", required = false) String department,
+            @RequestParam(value = "startDate", required = false) String startDate,
+            @RequestParam(value = "endDate", required = false) String endDate) {
 
-        log.info("getAttendees API called: search='{}', role='{}', status='{}', academicTitle='{}'",
-                search, role, status, academicTitle);
+        log.info(
+                "getAttendees API called: search='{}', role='{}', status='{}', academicTitle='{}', domain='{}', position='{}', department='{}', startDate='{}', endDate='{}'",
+                search, role, status, academicTitle, domain, position, department, startDate, endDate);
         try {
-            AttendeeProfileEntity.AttendeeRole roleEnum = null;
-            if (role != null && !role.isEmpty() && !"ALL".equalsIgnoreCase(role)) {
-                try {
-                    roleEnum = AttendeeProfileEntity.AttendeeRole.valueOf(role.toUpperCase());
-                } catch (IllegalArgumentException e) {
-                    log.warn("Invalid role override request: {}", role);
-                }
-            }
+            String normalRole = (role == null || role.isEmpty() || "ALL".equalsIgnoreCase(role)) ? null
+                    : role.toUpperCase();
+            String normalStatus = (status == null || status.isEmpty() || "ALL".equalsIgnoreCase(status)) ? null
+                    : status.toUpperCase();
+            String normalAcademicTitle = (academicTitle == null || academicTitle.isEmpty()
+                    || "ALL".equalsIgnoreCase(academicTitle)) ? null : academicTitle.toUpperCase();
+            String normalDomain = (domain == null || domain.isEmpty() || "ALL".equalsIgnoreCase(domain)) ? null
+                    : domain.toUpperCase();
+            String normalPosition = (position == null || position.isEmpty() || "ALL".equalsIgnoreCase(position)) ? null
+                    : position;
+            String normalDept = (department == null || department.isEmpty() || "ALL".equalsIgnoreCase(department))
+                    ? null
+                    : department;
+            String normalStartDate = (startDate == null || startDate.isEmpty() || "ALL".equalsIgnoreCase(startDate))
+                    ? null
+                    : startDate;
+            String normalEndDate = (endDate == null || endDate.isEmpty() || "ALL".equalsIgnoreCase(endDate)) ? null
+                    : endDate;
 
-            AttendeeProfileEntity.FollowUpStatus statusEnum = null;
-            if (status != null && !status.isEmpty() && !"ALL".equalsIgnoreCase(status)) {
-                try {
-                    statusEnum = AttendeeProfileEntity.FollowUpStatus.valueOf(status.toUpperCase());
-                } catch (IllegalArgumentException e) {
-                    log.warn("Invalid status override request: {}", status);
-                }
-            }
-
-            List<AttendeeProfileEntity> entities = attendeeProfileRepository.searchActiveProfiles(search, roleEnum,
-                    statusEnum);
-
-            // Academic Title in-memory filter
-            if (academicTitle != null && !academicTitle.isEmpty() && !"ALL".equalsIgnoreCase(academicTitle)) {
-                final String filterTag = academicTitle.toUpperCase();
-                entities = entities.stream()
-                        .filter(a -> a.getAcademicTitleNormalized() != null &&
-                                a.getAcademicTitleNormalized().stream().anyMatch(t -> t.equalsIgnoreCase(filterTag)))
-                        .collect(Collectors.toList());
-            }
+            List<AttendeeProfileEntity> entities = attendeeProfileRepository.searchActiveProfilesMultivariate(
+                    search, normalRole, normalStatus, normalDomain, normalAcademicTitle, normalPosition, normalDept,
+                    normalStartDate, normalEndDate);
 
             // Map to response models
             List<Map<String, Object>> dataList = entities.stream().map(this::mapToAttendeeSummary)
@@ -151,6 +150,12 @@ public class AttendeeController {
         map.put("organizationName", entity.getOrganization() != null ? entity.getOrganization().getOrgName()
                 : (entity.getOrganizationTextRaw() != null ? entity.getOrganizationTextRaw() : ""));
         map.put("followUpStatus", entity.getFollowUpStatus().name());
+        map.put("researchFieldsRaw",
+                entity.getResearchFieldsRaw() != null ? entity.getResearchFieldsRaw() : Collections.emptyList());
+        map.put("researchDomains",
+                entity.getResearchDomains() != null ? entity.getResearchDomains() : Collections.emptyList());
+        map.put("expertiseTags",
+                entity.getExpertiseTags() != null ? entity.getExpertiseTags() : Collections.emptyList());
         map.put("dynamicAttributes",
                 entity.getDynamicAttributes() != null ? entity.getDynamicAttributes() : Collections.emptyMap());
 

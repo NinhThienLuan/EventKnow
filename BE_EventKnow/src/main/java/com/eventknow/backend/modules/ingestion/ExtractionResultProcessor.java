@@ -199,6 +199,10 @@ public class ExtractionResultProcessor {
                 .position(pEnt.position() != null ? pEnt.position().trim() : null)
                 .organization(linkedOrg)
                 .organizationTextRaw(pEnt.organizationTextRaw())
+                .researchFieldsRaw(
+                        pEnt.researchFieldsRaw() != null ? pEnt.researchFieldsRaw() : Collections.emptyList())
+                .researchDomains(pEnt.researchDomains() != null ? pEnt.researchDomains() : Collections.emptyList())
+                .expertiseTags(pEnt.expertiseTags() != null ? pEnt.expertiseTags() : Collections.emptyList())
                 .followUpStatus(AttendeeProfileEntity.FollowUpStatus.CHUA_LIEN_HE)
                 .dynamicAttributes(pEnt.dynamicAttributes() != null ? pEnt.dynamicAttributesMap() : new HashMap<>())
                 .isActive(true)

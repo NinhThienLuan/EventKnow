@@ -3,6 +3,7 @@ package com.eventknow.backend.modules.ingestion;
 import com.eventknow.backend.model.entity.Audit.AcademicTitleAliasEntity;
 import com.eventknow.backend.model.entity.Core.AttendeeProfileEntity;
 import com.eventknow.backend.model.entity.Core.EventAttendanceEntity;
+import com.eventknow.backend.model.entity.Core.EventEntity;
 import com.eventknow.backend.model.entity.Core.OrganizationEntity;
 import com.eventknow.backend.model.entity.Core.RawEventEntity;
 import com.eventknow.backend.modules.identity.AttendeeProfileRepository;
@@ -57,10 +58,16 @@ public class IngestServiceIntegrationTest {
         private AcademicTitleAliasRepository academicTitleAliasRepository;
 
         @Autowired
+        private com.eventknow.backend.modules.identity.EventRepository eventRepository;
+
+        @Autowired
         private com.eventknow.backend.modules.attendee.AttendeeController attendeeController;
 
         @Autowired
         private com.eventknow.backend.modules.organization.OrganizationController organizationController;
+
+        @Autowired
+        private com.eventknow.backend.modules.recommendation.RecommendationController recommendationController;
 
         @MockBean
         private GeminiExtractionClient geminiExtractionClient;
@@ -124,18 +131,22 @@ public class IngestServiceIntegrationTest {
                 GeminiExtractionClient.ExtractedEntity p1 = new GeminiExtractionClient.ExtractedEntity(
                                 "PERSON", "Nguyễn Văn A", "a.nguyen@hust.edu.vn", null, "GS.TS",
                                 "SPEAKER", "Diễn giả", "HUST", null, null,
+                                List.of("Chuyên gia AI"), List.of("AI_ML"), List.of("NLP"),
                                 List.of(new GeminiExtractionClient.DynamicAttributeDto("STT", "1")));
                 GeminiExtractionClient.ExtractedEntity o1 = new GeminiExtractionClient.ExtractedEntity(
                                 "ORGANIZATION", null, null, null, null,
-                                null, null, null, "HUST", "hust.edu.vn", List.of());
+                                null, null, null, "HUST", "hust.edu.vn",
+                                List.of(), List.of(), List.of(), List.of());
 
                 GeminiExtractionClient.ExtractedEntity p2 = new GeminiExtractionClient.ExtractedEntity(
                                 "PERSON", "Trần Thị B", "b.tran@vnu.edu.vn", null, "Th.S",
                                 "GUEST", "Khách mời", "VNU", null, null,
+                                List.of("Nông nghiệp Xanh"), List.of("GREENTECH"), List.of("Organic"),
                                 List.of(new GeminiExtractionClient.DynamicAttributeDto("STT", "2")));
                 GeminiExtractionClient.ExtractedEntity o2 = new GeminiExtractionClient.ExtractedEntity(
                                 "ORGANIZATION", null, null, null, null,
-                                null, null, null, "VNU", "vnu.edu.vn", List.of());
+                                null, null, null, "VNU", "vnu.edu.vn",
+                                List.of(), List.of(), List.of(), List.of());
 
                 GeminiExtractionClient.BatchRowResult rRes1 = new GeminiExtractionClient.BatchRowResult(2,
                                 List.of(p1, o1));
@@ -249,7 +260,7 @@ public class IngestServiceIntegrationTest {
                 testFullIngestionFlow();
                 // Call attendees controller
                 org.springframework.http.ResponseEntity<Map<String, Object>> attResp = attendeeController
-                                .getAttendees("", null, null, "ALL");
+                                .getAttendees("", null, null, "ALL", null, null, null, null, null);
                 assertEquals(org.springframework.http.HttpStatus.OK, attResp.getStatusCode());
                 assertNotNull(attResp.getBody());
                 System.out.println("CONTROLLER ATTENDEES RESP: " + attResp.getBody());
@@ -260,6 +271,36 @@ public class IngestServiceIntegrationTest {
                 assertEquals(org.springframework.http.HttpStatus.OK, orgResp.getStatusCode());
                 assertNotNull(orgResp.getBody());
                 System.out.println("CONTROLLER ORGS RESP: " + orgResp.getBody());
+        }
+
+        @Test
+        public void testAdvancedSearchAndRecommendations() {
+                testFullIngestionFlow();
+
+                // Verify Advanced Search works
+                List<AttendeeProfileEntity> searchResp = attendeeProfileRepository.searchActiveProfilesMultivariate(
+                                "", null, null, "AI_ML", "GS", null, null, null, null);
+                assertFalse(searchResp.isEmpty());
+                assertTrue(searchResp.stream().anyMatch(a -> "Nguyễn Văn A".equals(a.getFullName())));
+
+                // Match Trần Thị B with GREENTECH
+                List<AttendeeProfileEntity> searchResp2 = attendeeProfileRepository.searchActiveProfilesMultivariate(
+                                "", null, null, "GREENTECH", null, null, null, null, null);
+                assertFalse(searchResp2.isEmpty());
+                assertTrue(searchResp2.stream().anyMatch(a -> "Trần Thị B".equals(a.getFullName())));
+
+                // Seed an event and test Recommendations
+                List<EventEntity> savedEvents = eventRepository.findAll();
+                assertFalse(savedEvents.isEmpty());
+                EventEntity targetEvent = savedEvents.get(0);
+                targetEvent.setTopicTags(List.of("NLP", "AI"));
+                eventRepository.save(targetEvent);
+
+                List<AttendeeProfileEntity> recs = attendeeProfileRepository
+                                .findRecommendationsForEvent(targetEvent.getId(), 5);
+                System.out.println("RECOMMENDATIONS SIZE: " + recs.size());
+                assertFalse(recs.isEmpty());
+                assertTrue(recs.stream().anyMatch(a -> "Nguyễn Văn A".equals(a.getFullName())));
         }
 
         private void orgRepositoryCheckReset() {
