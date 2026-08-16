@@ -11,3 +11,4 @@ docs
 .idea
 test
 application-dev.properties
+BE_EventKnow/src/main/resources/application-dev.properties

@@ -25,7 +25,7 @@ public class RuleBasedTitleNormalizer {
 
         // Try matching the whole raw title first to avoid splitting abbreviations like
         // "Th.S"
-        Optional<AcademicTitleAliasEntity> wholeAliasOpt = aliasRepository.findByRawAliasIgnoreCase(clean);
+        Optional<AcademicTitleAliasEntity> wholeAliasOpt = aliasRepository.findFirstByRawAliasIgnoreCase(clean);
         if (wholeAliasOpt.isPresent()) {
             normalizedTags.add(wholeAliasOpt.get().getNormalizedTag().name());
             List<String> list = new ArrayList<>(normalizedTags);
@@ -43,7 +43,7 @@ public class RuleBasedTitleNormalizer {
             }
 
             // 1. Try matching the entire trimmed part (e.g. "Kỹ sư" or "Thạc sĩ" or "GS")
-            Optional<AcademicTitleAliasEntity> aliasOpt = aliasRepository.findByRawAliasIgnoreCase(trimmedPart);
+            Optional<AcademicTitleAliasEntity> aliasOpt = aliasRepository.findFirstByRawAliasIgnoreCase(trimmedPart);
             if (aliasOpt.isPresent()) {
                 normalizedTags.add(aliasOpt.get().getNormalizedTag().name());
             } else {
@@ -57,7 +57,7 @@ public class RuleBasedTitleNormalizer {
                         continue;
                     }
                     Optional<AcademicTitleAliasEntity> subAliasOpt = aliasRepository
-                            .findByRawAliasIgnoreCase(cleanToken);
+                            .findFirstByRawAliasIgnoreCase(cleanToken);
                     if (subAliasOpt.isPresent()) {
                         normalizedTags.add(subAliasOpt.get().getNormalizedTag().name());
                         matchedAnySub = true;

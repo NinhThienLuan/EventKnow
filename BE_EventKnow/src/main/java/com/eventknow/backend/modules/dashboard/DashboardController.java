@@ -72,7 +72,16 @@ public class DashboardController {
         log.debug("Dashboard aggregate: viewer={} isAdmin={} visibleCount={}",
                 viewerEmail, isAdmin, visibleRawEventIds == null ? "ALL" : visibleRawEventIds.size());
 
-        DashboardFilterParams filters = new DashboardFilterParams(startDate, endDate, department, academicTitle, role);
+        String normalDept = (department == null || department.trim().isEmpty() || "ALL".equalsIgnoreCase(department))
+                ? null
+                : department.trim();
+        String normalTitle = (academicTitle == null || academicTitle.trim().isEmpty()
+                || "ALL".equalsIgnoreCase(academicTitle)) ? null : academicTitle.trim();
+        String normalRole = (role == null || role.trim().isEmpty() || "ALL".equalsIgnoreCase(role)) ? null
+                : role.trim().toUpperCase();
+
+        DashboardFilterParams filters = new DashboardFilterParams(startDate, endDate, normalDept, normalTitle,
+                normalRole);
         DashboardAggregateResponse response = aggregateService.getAggregate(filters, visibleRawEventIds);
         return ResponseEntity.ok(response);
     }

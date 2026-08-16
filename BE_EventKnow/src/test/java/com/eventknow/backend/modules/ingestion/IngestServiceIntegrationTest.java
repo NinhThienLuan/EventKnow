@@ -69,6 +69,9 @@ public class IngestServiceIntegrationTest {
         @Autowired
         private com.eventknow.backend.modules.recommendation.RecommendationController recommendationController;
 
+        @Autowired
+        private com.eventknow.backend.modules.dashboard.DashboardController dashboardController;
+
         @MockBean
         private GeminiExtractionClient geminiExtractionClient;
 
@@ -301,6 +304,97 @@ public class IngestServiceIntegrationTest {
                 System.out.println("RECOMMENDATIONS SIZE: " + recs.size());
                 assertFalse(recs.isEmpty());
                 assertTrue(recs.stream().anyMatch(a -> "Nguyễn Văn A".equals(a.getFullName())));
+        }
+
+        @Test
+        public void testDashboardAnalytics() {
+                // 1. Seed data by running full ingestion (Excel upload, which creates 2
+                // attendees)
+                testFullIngestionFlow();
+
+                // 2. Fetch aggregate with parameter normalization checking ("ALL" is passed)
+                org.springframework.security.core.Authentication mockAuth = Mockito
+                                .mock(org.springframework.security.core.Authentication.class);
+                Mockito.when(mockAuth.getName()).thenReturn("admin@eventknow.com");
+                Mockito.when(mockAuth.isAuthenticated()).thenReturn(true);
+                Mockito.doReturn(List.of((org.springframework.security.core.GrantedAuthority) () -> "ROLE_ADMIN"))
+                                .when(mockAuth).getAuthorities();
+
+                // Set authentication in security context holder for method security
+                // (@PreAuthorize)
+                org.springframework.security.core.context.SecurityContext context = org.springframework.security.core.context.SecurityContextHolder
+                                .createEmptyContext();
+                context.setAuthentication(mockAuth);
+                org.springframework.security.core.context.SecurityContextHolder.setContext(context);
+
+                try {
+                        org.springframework.http.ResponseEntity<com.eventknow.backend.modules.dashboard.dto.DashboardAggregateResponse> response = dashboardController
+                                        .getAggregate(null, null, "ALL", "ALL", "ALL", mockAuth);
+                        assertEquals(org.springframework.http.HttpStatus.OK, response.getStatusCode());
+                        assertNotNull(response.getBody());
+
+                        com.eventknow.backend.modules.dashboard.dto.DashboardAggregateResponse agg = response.getBody();
+                        assertNotNull(agg.getSummary());
+
+                        // Check academic title breakdowns normalization
+                        Map<String, Integer> titles = agg.getSummary().getAcademicTitleBreakdown();
+                        System.out.println("DEBUG TITLE BREAKDOWN: " + titles);
+                        assertTrue(titles.containsKey("GS"));
+                        assertTrue(titles.containsKey("TS"));
+                        assertTrue(titles.containsKey("ThS"));
+
+                        // Check role breakdown
+                        Map<String, Integer> roles = agg.getSummary().getAttendeeRoleBreakdown();
+                        System.out.println("DEBUG ROLE BREAKDOWN: " + roles);
+                        assertTrue(roles.containsKey("SPEAKER"));
+                        assertTrue(roles.containsKey("GUEST"));
+
+                        // Validate Fix 2: Research domains breakdown check
+                        Map<String, Integer> domains = agg.getSummary().getResearchDomainBreakdown();
+                        System.out.println("DEBUG DOMAIN BREAKDOWN: " + domains);
+                        assertNotNull(domains);
+                        assertTrue(domains.containsKey("AI_ML"));
+                        assertTrue(domains.containsKey("GREENTECH"));
+
+                        // Validate Fix 3 (Show-up Rate):
+                        // Seeding a registered attendee from GOOGLE_FORM source
+                        RawEventEntity regRaw = RawEventEntity.builder()
+                                        .sourceFileName("registration.csv")
+                                        .eventName("Hội thảo AI")
+                                        .sourceType(RawEventEntity.SourceType.GOOGLE_FORM)
+                                        .ingestionStatus(RawEventEntity.IngestionStatus.DONE)
+                                        .department("IT")
+                                        .event(eventRepository.findAll().get(0))
+                                        .build();
+                        rawEventRepository.saveAndFlush(regRaw);
+
+                        AttendeeProfileEntity regAttendee = AttendeeProfileEntity.builder()
+                                        .fullName("Registered User")
+                                        .normalizedName("registered user")
+                                        .dynamicAttributes(Map.of())
+                                        .isActive(true)
+                                        .email("reg@test.com")
+                                        .build();
+                        attendeeProfileRepository.saveAndFlush(regAttendee);
+
+                        eventAttendanceRepository.saveAndFlush(EventAttendanceEntity.builder()
+                                        .rawEvent(regRaw)
+                                        .attendeeProfile(regAttendee)
+                                        .snapshotData(Map.of())
+                                        .isDeletedInSource(false)
+                                        .build());
+
+                        // Re-fetch to verify Show-up Rate (2 attended in Excel / 1 registered in Google
+                        // Form = 2.0)
+
+                        response = dashboardController.getAggregate(null, null, "ALL", "ALL", "ALL", mockAuth);
+                        assertEquals(org.springframework.http.HttpStatus.OK, response.getStatusCode());
+                        agg = response.getBody();
+                        assertNotNull(agg);
+                        assertEquals(2.0, agg.getSummary().getShowUpRate());
+                } finally {
+                        org.springframework.security.core.context.SecurityContextHolder.clearContext();
+                }
         }
 
         private void orgRepositoryCheckReset() {

@@ -52,6 +52,23 @@ public class DashboardAggregateService {
     public DashboardAggregateResponse getAggregate(
             DashboardFilterParams filters, List<UUID> visibleRawEventIds) {
 
+        if (isEmptyAccess(visibleRawEventIds)) {
+            return DashboardAggregateResponse.builder()
+                    .summary(SummaryDto.builder()
+                            .totalEvents(0L)
+                            .totalAttendees(0L)
+                            .uniqueOrganizations(0L)
+                            .totalReports(0L)
+                            .academicTitleBreakdown(Map.of())
+                            .attendeeRoleBreakdown(Map.of())
+                            .followUpFunnel(queryFollowUpFunnel())
+                            .build())
+                    .monthlyTrend(List.of())
+                    .departmentDistribution(List.of())
+                    .dataHealth(getDataHealth())
+                    .build();
+        }
+
         SummaryDto summary = buildSummary(filters, visibleRawEventIds);
         List<MonthlyTrendDto> trend = getMonthlyTrend(filters, visibleRawEventIds);
         List<DepartmentDto> deptDist = getDepartmentDistribution(filters, visibleRawEventIds);
@@ -66,6 +83,9 @@ public class DashboardAggregateService {
     }
 
     public List<TopOrganizationDto> getTopOrganizations(int limit, List<UUID> visibleRawEventIds) {
+        if (isEmptyAccess(visibleRawEventIds)) {
+            return List.of();
+        }
         return queryTopOrganizations(limit, visibleRawEventIds);
     }
 
@@ -82,6 +102,8 @@ public class DashboardAggregateService {
                 .academicTitleBreakdown(queryAcademicTitleBreakdown(f, visibleIds))
                 .attendeeRoleBreakdown(queryAttendeeRoleBreakdown(f, visibleIds))
                 .followUpFunnel(queryFollowUpFunnel())
+                .showUpRate(queryShowUpRate(f, visibleIds))
+                .researchDomainBreakdown(queryResearchDomainBreakdown(f, visibleIds))
                 .build();
     }
 
@@ -155,17 +177,57 @@ public class DashboardAggregateService {
 
     /** Total AI insight reports in the filtered date range. */
     private long queryTotalReports(DashboardFilterParams f) {
-        String sql = "SELECT COUNT(*) FROM ai_insight_reports"
-                + " WHERE 1=1"
-                + dateFilter("created_at::date", f.startDate(), f.endDate());
+        return 0L;
+    }
 
-        MapSqlParameterSource p = new MapSqlParameterSource();
-        if (f.startDate() != null)
-            p.addValue("startDate", f.startDate());
-        if (f.endDate() != null)
-            p.addValue("endDate", f.endDate());
+    /**
+     * Calculates Show-up Rate ratio (attended count via EXCEL/SCAN_OCR over
+     * registered count via GOOGLE_FORM).
+     */
+    private Double queryShowUpRate(DashboardFilterParams f, List<UUID> visibleIds) {
+        if (isEmptyAccess(visibleIds)) {
+            return null;
+        }
 
-        return queryLong(sql, p);
+        // 1. Attended (EXCEL, SCAN_OCR)
+        String attendedSql = """
+                SELECT COUNT(DISTINCT resolve_entity_id('PERSON', ea.attendee_profile_id))
+                FROM event_attendance ea
+                JOIN raw_events re ON ea.raw_event_id = re.id
+                JOIN events e ON re.event_id = e.id
+                WHERE ea.attendee_profile_id IS NOT NULL
+                  AND ea.is_deleted_in_source = false
+                  AND re.ingestion_status = 'DONE'
+                  AND re.source_type IN ('EXCEL', 'SCAN_OCR')
+                """
+                + dateFilter("e.event_date", f.startDate(), f.endDate())
+                + departmentFilter("e.department", f.department())
+                + rls(visibleIds, "re.id");
+
+        long attendedCount = queryLong(attendedSql, eventParams(f, visibleIds));
+
+        // 2. Registered (GOOGLE_FORM)
+        String registeredSql = """
+                SELECT COUNT(DISTINCT resolve_entity_id('PERSON', ea.attendee_profile_id))
+                FROM event_attendance ea
+                JOIN raw_events re ON ea.raw_event_id = re.id
+                JOIN events e ON re.event_id = e.id
+                WHERE ea.attendee_profile_id IS NOT NULL
+                  AND ea.is_deleted_in_source = false
+                  AND re.ingestion_status = 'DONE'
+                  AND re.source_type = 'GOOGLE_FORM'
+                """
+                + dateFilter("e.event_date", f.startDate(), f.endDate())
+                + departmentFilter("e.department", f.department())
+                + rls(visibleIds, "re.id");
+
+        long registeredCount = queryLong(registeredSql, eventParams(f, visibleIds));
+
+        if (registeredCount == 0L) {
+            return null;
+        }
+
+        return (double) attendedCount / registeredCount;
     }
 
     // ─────────────────────────────────────────────────────────────────────────
@@ -237,6 +299,31 @@ public class DashboardAggregateService {
                 + " GROUP BY ap.attendee_role";
 
         return queryStringIntMap(sql, eventParams(f, visibleIds), "attendee_role", "cnt");
+    }
+
+    private Map<String, Integer> queryResearchDomainBreakdown(DashboardFilterParams f, List<UUID> visibleIds) {
+        if (isEmptyAccess(visibleIds))
+            return Map.of();
+
+        String sql = """
+                SELECT tag, COUNT(DISTINCT resolved_id) AS cnt
+                FROM (
+                    SELECT resolve_entity_id('PERSON', ap.id) AS resolved_id,
+                           unnest(ap.research_domains) AS tag
+                    FROM attendee_profiles ap
+                    JOIN event_attendance ea ON ea.attendee_profile_id = ap.id
+                    JOIN raw_events re ON ea.raw_event_id = re.id
+                    JOIN events e ON re.event_id = e.id
+                    WHERE ap.is_active = true
+                      AND re.ingestion_status = 'DONE'
+                      AND ea.is_deleted_in_source = false
+                    """
+                + dateFilter("e.event_date", f.startDate(), f.endDate())
+                + departmentFilter("e.department", f.department())
+                + rls(visibleIds, "re.id")
+                + ") sub GROUP BY tag";
+
+        return queryStringIntMap(sql, eventParams(f, visibleIds), "tag", "cnt");
     }
 
     // ─────────────────────────────────────────────────────────────────────────

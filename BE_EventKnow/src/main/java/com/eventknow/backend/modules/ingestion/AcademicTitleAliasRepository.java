@@ -9,5 +9,5 @@ import java.util.UUID;
 
 @Repository
 public interface AcademicTitleAliasRepository extends JpaRepository<AcademicTitleAliasEntity, UUID> {
-    Optional<AcademicTitleAliasEntity> findByRawAliasIgnoreCase(String rawAlias);
+    Optional<AcademicTitleAliasEntity> findFirstByRawAliasIgnoreCase(String rawAlias);
 }
