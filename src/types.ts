@@ -78,6 +78,8 @@ export interface DashboardSummary {
   totalAttendees: number;
   uniqueOrganizations: number;
   totalReports: number;
+  showUpRate: number | null;
+  researchDomainBreakdown: Record<string, number>;
   academicTitleBreakdown: Record<string, number>;
   attendeeRoleBreakdown: Record<string, number>;
   followUpFunnel: Record<string, number>;

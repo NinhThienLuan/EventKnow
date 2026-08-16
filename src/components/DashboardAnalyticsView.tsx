@@ -126,6 +126,8 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
     totalAttendees: 0,
     uniqueOrganizations: 0,
     totalReports: 0,
+    showUpRate: null,
+    researchDomainBreakdown: {},
     academicTitleBreakdown: {},
     attendeeRoleBreakdown: {},
     followUpFunnel: {}
@@ -279,10 +281,14 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
 
             <div className="bg-white border border-[#DCE1E6] rounded-xl p-4 shadow-2xs space-y-2 hover:border-emerald-700 transition-all">
               <div className="flex items-center justify-between text-[#72787e]">
-                <span className="text-[11px] font-mono font-bold uppercase">{language === 'VN' ? 'BÁO CÁO AI ĐÃ ĐÓNG BĂNG' : 'SYNTHESIZED REPORTS'}</span>
-                <FileSpreadsheet className="w-4 h-4 text-emerald-700" />
+                <span className="text-[11px] font-mono font-bold uppercase">{language === 'VN' ? 'TỶ LỆ THAM DỰ (SHOW-UP RATE)' : 'SHOW-UP RATE'}</span>
+                <Activity className="w-4 h-4 text-emerald-700" />
               </div>
-              <div className="text-3xl font-bold font-display text-[#00344c]">{stats.totalReports}</div>
+              <div className="text-3xl font-bold font-display text-[#00344c]">
+                {stats.showUpRate !== null && stats.showUpRate !== undefined
+                  ? `${(stats.showUpRate * 100).toFixed(1)}%`
+                  : 'N/A'}
+              </div>
             </div>
           </div>
 
@@ -365,7 +371,7 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
                 </span>
               </div>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                 {/* Academic Title counts */}
                 <div>
                   <h4 className="text-[11px] font-mono font-bold text-[#72787e] uppercase mb-2 border-b border-gray-100 pb-1">
@@ -400,6 +406,27 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
                       ))
                     ) : (
                       <p className="text-[10px] text-gray-400 italic">No role data</p>
+                    )}
+                  </div>
+                </div>
+
+                {/* Research Domains */}
+                <div>
+                  <h4 className="text-[11px] font-mono font-bold text-[#72787e] uppercase mb-2 border-b border-gray-100 pb-1">
+                    {language === 'VN' ? 'LĨNH VỰC NGHIÊN CỨU' : 'RESEARCH DOMAINS'}
+                  </h4>
+                  <div className="space-y-1.5">
+                    {stats.researchDomainBreakdown && Object.keys(stats.researchDomainBreakdown).length > 0 ? (
+                      Object.entries(stats.researchDomainBreakdown).map(([domain, val]) => (
+                        <div key={domain} className="flex justify-between text-xs font-medium">
+                          <span className="text-gray-700">{domain}</span>
+                          <span className="font-mono text-[#00344c] font-bold">{val}</span>
+                        </div>
+                      ))
+                    ) : (
+                      <p className="text-[10px] text-gray-400 italic">
+                        {language === 'VN' ? 'Không có dữ liệu' : 'No domain data'}
+                      </p>
                     )}
                   </div>
                 </div>

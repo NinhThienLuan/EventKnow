@@ -385,7 +385,9 @@ public class IngestServiceIntegrationTest {
                                         .build());
 
                         // Re-fetch to verify Show-up Rate (2 attended in Excel / 1 registered in Google
-                        // Form = 2.0)
+                        // Form = 2.0. Note: This ratio of 2.0 (200%) represents a scenario where actual
+                        // attended entities exceed initial google form registrations, which is common
+                        // due to offline walk-in attendees.)
 
                         response = dashboardController.getAggregate(null, null, "ALL", "ALL", "ALL", mockAuth);
                         assertEquals(org.springframework.http.HttpStatus.OK, response.getStatusCode());
