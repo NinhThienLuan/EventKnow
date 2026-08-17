@@ -7,6 +7,7 @@ import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 
+import java.sql.Types;
 import java.time.LocalDate;
 import java.util.*;
 import java.util.stream.Collectors;
@@ -89,6 +90,53 @@ public class DashboardAggregateService {
         return queryTopOrganizations(limit, visibleRawEventIds);
     }
 
+    /**
+     * FR-4.6 — Returns all canonical events visible to the requesting user.
+     *
+     * <p>
+     * Uses EXISTS subquery to avoid JOIN-induced row duplication (no DISTINCT ON
+     * needed).
+     * Ordered by event_date DESC for FE picker display.
+     * </p>
+     *
+     * <p>
+     * RLS contract: same null/empty convention as other methods.
+     * TODO: add page/size pagination if event count exceeds ~100 in production.
+     * </p>
+     */
+    public List<EventListDto> getEventList(List<UUID> visibleRawEventIds) {
+        if (isEmptyAccess(visibleRawEventIds)) {
+            return List.of();
+        }
+
+        String sql = """
+                SELECT e.id, e.event_name, e.event_date, e.department
+                FROM events e
+                WHERE e.is_active = true
+                  AND EXISTS (
+                      SELECT 1 FROM raw_events re
+                      WHERE re.event_id = e.id
+                        AND re.ingestion_status = 'DONE'
+                """
+                + (visibleRawEventIds != null
+                        ? "AND re.id = ANY(:visibleRawEventIds::uuid[])\n"
+                        : "")
+                + """
+                          )
+                        ORDER BY e.event_date DESC
+                        """;
+
+        MapSqlParameterSource p = new MapSqlParameterSource();
+        applyRlsParam(p, visibleRawEventIds);
+
+        return jdbc.query(sql, p, (rs, i) -> EventListDto.builder()
+                .id(UUID.fromString(rs.getString("id")))
+                .eventName(rs.getString("event_name"))
+                .eventDate(rs.getObject("event_date", LocalDate.class))
+                .department(rs.getString("department"))
+                .build());
+    }
+
     // ─────────────────────────────────────────────────────────────────────────
     // Summary assembly
     // ─────────────────────────────────────────────────────────────────────────
@@ -124,6 +172,7 @@ public class DashboardAggregateService {
                 + " WHERE e.is_active = true AND re.ingestion_status = 'DONE'"
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
+                + eventIdsFilter()
                 + rls(visibleIds, "re.id");
 
         return queryLong(sql, eventParams(f, visibleIds));
@@ -149,6 +198,7 @@ public class DashboardAggregateService {
                 """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
+                + eventIdsFilter()
                 + rls(visibleIds, "re.id");
 
         return queryLong(sql, eventParams(f, visibleIds));
@@ -170,6 +220,7 @@ public class DashboardAggregateService {
                 """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
+                + eventIdsFilter()
                 + rls(visibleIds, "re.id");
 
         return queryLong(sql, eventParams(f, visibleIds));
@@ -202,6 +253,7 @@ public class DashboardAggregateService {
                 """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
+                + eventIdsFilter()
                 + rls(visibleIds, "re.id");
 
         long attendedCount = queryLong(attendedSql, eventParams(f, visibleIds));
@@ -219,6 +271,7 @@ public class DashboardAggregateService {
                 """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
+                + eventIdsFilter()
                 + rls(visibleIds, "re.id");
 
         long registeredCount = queryLong(registeredSql, eventParams(f, visibleIds));
@@ -267,6 +320,7 @@ public class DashboardAggregateService {
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
                 + academicTitleFilter(f.academicTitle())
+                + eventIdsFilter()
                 + rls(visibleIds, "re.id")
                 + ") sub GROUP BY tag";
 
@@ -295,6 +349,7 @@ public class DashboardAggregateService {
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
                 + roleFilter(f.role())
+                + eventIdsFilter()
                 + rls(visibleIds, "re.id")
                 + " GROUP BY ap.attendee_role";
 
@@ -320,6 +375,7 @@ public class DashboardAggregateService {
                     """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
+                + eventIdsFilter()
                 + rls(visibleIds, "re.id")
                 + ") sub GROUP BY tag";
 
@@ -376,6 +432,7 @@ public class DashboardAggregateService {
                 """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
+                + eventIdsFilter()
                 + rls(visibleIds, "re.id")
                 + " GROUP BY month ORDER BY month ASC";
 
@@ -407,6 +464,7 @@ public class DashboardAggregateService {
                 """
                 + dateFilter("e.event_date", f.startDate(), f.endDate())
                 + departmentFilter("e.department", f.department())
+                + eventIdsFilter()
                 + rls(visibleIds, "re.id")
                 + " GROUP BY e.department ORDER BY cnt DESC";
 
@@ -490,6 +548,30 @@ public class DashboardAggregateService {
         return (visibleIds != null) ? " JOIN raw_events re ON re.event_id = e.id" : "";
     }
 
+    /**
+     * FR-4.6 — Event Dashboard scope filter (null-safe, static SQL).
+     *
+     * <p>
+     * Always returns the same SQL text regardless of whether eventIds is set.
+     * PostgreSQL evaluates the IS NULL branch at runtime — no per-request SQL
+     * polymorphism,
+     * so prepared-statement caching remains effective.
+     * </p>
+     *
+     * <p>
+     * RLS contract: this filter is ALWAYS ANDed AFTER visibleRawEventIds.
+     * A user cannot bypass RLS by supplying eventIds they don't have access to —
+     * the RLS clause will return 0 rows first.
+     * </p>
+     */
+    private String eventIdsFilter() {
+        // CAST(:eventIds AS uuid[]) is required — PostgreSQL cannot determine the type
+        // of a null-valued bound parameter without an explicit type hint.
+        // Using CAST on both sides ensures the same SQL text is generated regardless of
+        // whether :eventIds is null, keeping prepared-statement cache effective.
+        return " AND (CAST(:eventIds AS uuid[]) IS NULL OR e.id = ANY(CAST(:eventIds AS uuid[])))";
+    }
+
     private String dateFilter(String col, LocalDate start, LocalDate end) {
         StringBuilder sb = new StringBuilder();
         if (start != null)
@@ -532,6 +614,14 @@ public class DashboardAggregateService {
             p.addValue("academicTitle", f.academicTitle());
         if (f.role() != null)
             p.addValue("role", f.role());
+        // FR-4.6: bind eventIds with explicit Types.ARRAY to avoid Spring
+        // type-inference
+        // failure on null (UUID array bind quirk — same issue as visibleRawEventIds).
+        if (f.eventIds() != null) {
+            p.addValue("eventIds", f.eventIds().toArray(UUID[]::new));
+        } else {
+            p.addValue("eventIds", null, Types.ARRAY);
+        }
         applyRlsParam(p, visibleIds);
         return p;
     }

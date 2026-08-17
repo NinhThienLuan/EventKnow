@@ -329,7 +329,7 @@ public class IngestServiceIntegrationTest {
 
                 try {
                         org.springframework.http.ResponseEntity<com.eventknow.backend.modules.dashboard.dto.DashboardAggregateResponse> response = dashboardController
-                                        .getAggregate(null, null, "ALL", "ALL", "ALL", mockAuth);
+                                        .getAggregate(null, null, "ALL", "ALL", "ALL", null, mockAuth);
                         assertEquals(org.springframework.http.HttpStatus.OK, response.getStatusCode());
                         assertNotNull(response.getBody());
 
@@ -389,7 +389,7 @@ public class IngestServiceIntegrationTest {
                         // attended entities exceed initial google form registrations, which is common
                         // due to offline walk-in attendees.)
 
-                        response = dashboardController.getAggregate(null, null, "ALL", "ALL", "ALL", mockAuth);
+                        response = dashboardController.getAggregate(null, null, "ALL", "ALL", "ALL", null, mockAuth);
                         assertEquals(org.springframework.http.HttpStatus.OK, response.getStatusCode());
                         agg = response.getBody();
                         assertNotNull(agg);

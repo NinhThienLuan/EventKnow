@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import {
   BarChart3,
   Users,
@@ -9,10 +9,12 @@ import {
   Shield,
   Activity,
   AlertTriangle,
-  Play
+  Play,
+  Globe,
+  ListFilter
 } from 'lucide-react';
 import { translations } from '../data/translations';
-import { fetchDashboardAggregate, fetchTopOrganizations } from '../lib/dashboardApi';
+import { fetchDashboardAggregate, fetchTopOrganizations, fetchEventList, EventListItem } from '../lib/dashboardApi';
 import { DashboardAggregate, TopOrganization } from '../types';
 
 interface DashboardAnalyticsViewProps {
@@ -26,6 +28,14 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
 }) => {
   const t = translations[language];
 
+  // FR-4.6 — Stream toggle: 'SYSTEM' = global aggregate, 'EVENT' = scoped to eventIds
+  const [dashboardMode, setDashboardMode] = useState<'SYSTEM' | 'EVENT'>('SYSTEM');
+
+  // Event picker state (EVENT stream)
+  const [eventList, setEventList] = useState<EventListItem[]>([]);
+  const [eventListLoading, setEventListLoading] = useState(false);
+  const [selectedEventIds, setSelectedEventIds] = useState<Set<string>>(new Set());
+
   const [selectedDept, setSelectedDept] = useState('ALL');
   const [selectedYear, setSelectedYear] = useState('ALL');
 
@@ -34,19 +44,50 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Load events list when first switching to EVENT mode
   useEffect(() => {
+    if (dashboardMode !== 'EVENT') return;
+    if (eventList.length > 0) return; // already loaded
+    let isMounted = true;
+    setEventListLoading(true);
+    fetchEventList()
+      .then(list => { if (isMounted) setEventList(list); })
+      .catch(() => { /* non-fatal: picker stays empty */ })
+      .finally(() => { if (isMounted) setEventListLoading(false); });
+    return () => { isMounted = false; };
+  }, [dashboardMode]);
+
+  const toggleEventId = useCallback((id: string) => {
+    setSelectedEventIds(prev => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }, []);
+
+  // Load aggregate — triggered by filters OR stream/event selection change
+  useEffect(() => {
+    // In EVENT mode with no events selected, skip the API call
+    if (dashboardMode === 'EVENT' && selectedEventIds.size === 0) {
+      setData(null);
+      setTopOrgs([]);
+      setLoading(false);
+      return;
+    }
+
     let isMounted = true;
     const load = async () => {
       setLoading(true);
       setError(null);
       try {
         const filters: any = {};
-        if (selectedDept !== 'ALL') {
-          filters.department = selectedDept;
-        }
+        if (selectedDept !== 'ALL') filters.department = selectedDept;
         if (selectedYear !== 'ALL') {
           filters.startDate = `${selectedYear}-01-01`;
           filters.endDate = `${selectedYear}-12-31`;
+        }
+        if (dashboardMode === 'EVENT' && selectedEventIds.size > 0) {
+          filters.eventIds = Array.from(selectedEventIds);
         }
 
         const [aggregate, orgList] = await Promise.all([
@@ -60,24 +101,16 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
         }
       } catch (err: any) {
         if (isMounted) {
-          if (err.message === 'UNAUTHORIZED') {
-            setError('UNAUTHORIZED');
-          } else {
-            setError(err.message || 'Lỗi tải dữ liệu bảng điều khiển');
-          }
+          setError(err.message === 'UNAUTHORIZED' ? 'UNAUTHORIZED' : (err.message || 'Lỗi tải dữ liệu'));
         }
       } finally {
-        if (isMounted) {
-          setLoading(false);
-        }
+        if (isMounted) setLoading(false);
       }
     };
 
     load();
-    return () => {
-      isMounted = false;
-    };
-  }, [selectedDept, selectedYear]);
+    return () => { isMounted = false; };
+  }, [selectedDept, selectedYear, dashboardMode, selectedEventIds]);
 
   // Fallback rendering for UNAUTHORIZED state
   if (error === 'UNAUTHORIZED') {
@@ -147,7 +180,7 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#DCE1E6] pb-4">
         <div className="space-y-1">
           <div className="text-[11px] font-mono font-medium text-[#72787e] uppercase tracking-wider">
-            / ANALYTICS / DETERMINISTIC DASHBOARD
+            / ANALYTICS / {dashboardMode === 'SYSTEM' ? 'SYSTEM DASHBOARD' : 'EVENT DASHBOARD'}
           </div>
           <h1 className="text-display-md text-[#00344c] tracking-tight font-bold font-display flex items-center gap-2">
             <BarChart3 className="w-6 h-6 text-[#1b4b66]" />
@@ -159,18 +192,73 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
               : 'Deterministic metrics aggregate 100% via SQL backend (FR-4.1) prior to AI narrative synthesis.'}
           </p>
         </div>
+      </div>
 
+      {/* FR-4.6 — Stream Toggle */}
+      <div className="flex items-center gap-2">
         <button
-          onClick={() => {
-            if (onNavigateToPrompt) {
-              onNavigateToPrompt(`Tổng hợp thống kê tình hình tham dự sự kiện của phòng ban ${selectedDept} trong năm ${selectedYear}`);
-            }
-          }}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-[#00344c] text-white text-xs font-bold rounded-lg hover:bg-[#1b4b66] transition-all cursor-pointer shadow-2xs shrink-0 self-start sm:self-auto"
+          id="dashboard-stream-system"
+          onClick={() => setDashboardMode('SYSTEM')}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${dashboardMode === 'SYSTEM'
+            ? 'bg-[#00344c] text-white shadow-sm'
+            : 'bg-white border border-[#DCE1E6] text-[#41474d] hover:border-[#1b4b66]'
+            }`}
         >
-          <span>{language === 'VN' ? 'Tạo Báo Cáo AI Từ Dashboard' : 'Generate AI Report'}</span>
+          <Globe className="w-3.5 h-3.5" />
+          {language === 'VN' ? 'Dashboard Hệ Thống' : 'System Dashboard'}
+        </button>
+        <button
+          id="dashboard-stream-event"
+          onClick={() => setDashboardMode('EVENT')}
+          className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${dashboardMode === 'EVENT'
+            ? 'bg-[#1b4b66] text-white shadow-sm'
+            : 'bg-white border border-[#DCE1E6] text-[#41474d] hover:border-[#1b4b66]'
+            }`}
+        >
+          <ListFilter className="w-3.5 h-3.5" />
+          {language === 'VN' ? 'Dashboard Sự Kiện' : 'Event Dashboard'}
         </button>
       </div>
+
+      {/* FR-4.6 — Event Picker (EVENT stream only) */}
+      {dashboardMode === 'EVENT' && (
+        <div className="bg-[#F0F6FF] border border-[#bdd6f5] rounded-xl p-4 space-y-3">
+          <div className="text-[11px] font-mono font-bold text-[#1b4b66] uppercase">
+            {language === 'VN' ? 'CHỌN SỰ KIỆN ĐỂ XEM THỐNG KÊ:' : 'SELECT EVENTS TO SCOPE:'}
+          </div>
+          {eventListLoading ? (
+            <p className="text-xs text-[#72787e] italic">Đang tải danh sách sự kiện...</p>
+          ) : eventList.length === 0 ? (
+            <p className="text-xs text-[#72787e] italic">
+              {language === 'VN' ? 'Không có sự kiện nào trong phạm vi quyền truy cập.' : 'No events available within your access scope.'}
+            </p>
+          ) : (
+            <div className="max-h-48 overflow-y-auto space-y-1 pr-1">
+              {eventList.map(ev => (
+                <label
+                  key={ev.id}
+                  className="flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer hover:bg-[#daeaff] transition-colors"
+                >
+                  <input
+                    type="checkbox"
+                    checked={selectedEventIds.has(ev.id)}
+                    onChange={() => toggleEventId(ev.id)}
+                    className="accent-[#00344c] w-3.5 h-3.5 shrink-0 cursor-pointer"
+                  />
+                  <span className="text-xs font-semibold text-[#0f1d28] truncate flex-1">{ev.eventName}</span>
+                  <span className="text-[10px] font-mono text-[#72787e] shrink-0">{ev.eventDate}</span>
+                  <span className="text-[10px] font-mono text-[#1b4b66] shrink-0 bg-[#edf4ff] px-1.5 py-0.5 rounded">{ev.department}</span>
+                </label>
+              ))}
+            </div>
+          )}
+          {selectedEventIds.size === 0 && !eventListLoading && eventList.length > 0 && (
+            <p className="text-[11px] text-amber-700 font-semibold">
+              {language === 'VN' ? '⚠ Chọn ít nhất 1 sự kiện để xem thống kê scoped.' : '⚠ Select at least 1 event to scope the dashboard.'}
+            </p>
+          )}
+        </div>
+      )}
 
       {/* Filter Toolbar (Department + temporal) */}
       <div className="flex flex-wrap items-center gap-3 bg-[#F8FAFC] border border-[#DCE1E6] rounded-xl p-4 shadow-3xs">

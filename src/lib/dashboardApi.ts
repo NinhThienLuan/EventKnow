@@ -8,6 +8,8 @@ export interface DashboardFilterParams {
     department?: string;
     academicTitle?: string;
     role?: string;
+    /** FR-4.6 — Event Dashboard stream: canonical event UUIDs to scope aggregate */
+    eventIds?: string[];
 }
 
 /**
@@ -20,6 +22,10 @@ export async function fetchDashboardAggregate(filters: DashboardFilterParams = {
     if (filters.department) queryParams.append('department', filters.department);
     if (filters.academicTitle) queryParams.append('academicTitle', filters.academicTitle);
     if (filters.role) queryParams.append('role', filters.role);
+    // FR-4.6: repeated params for Spring's List<UUID> binding
+    if (filters.eventIds && filters.eventIds.length > 0) {
+        filters.eventIds.forEach(id => queryParams.append('eventIds', id));
+    }
 
     const url = `${BASE}/aggregate?${queryParams.toString()}`;
 
@@ -60,4 +66,32 @@ export async function fetchTopOrganizations(limit: number = 10): Promise<TopOrga
 
     const json = await response.json();
     return json.data || [];
+}
+
+/**
+ * FR-4.6 — Fetch visible canonical events for the Event Dashboard picker.
+ * Returns events ordered by event_date DESC, filtered by RLS.
+ */
+export interface EventListItem {
+    id: string;
+    eventName: string;
+    eventDate: string;
+    department: string;
+}
+
+export async function fetchEventList(): Promise<EventListItem[]> {
+    const url = `${BASE}/events-list`;
+
+    const response = await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        if (response.status === 401) throw new Error('UNAUTHORIZED');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.error || `HTTP ${response.status}: Failed to fetch events list`);
+    }
+
+    return response.json();
 }
