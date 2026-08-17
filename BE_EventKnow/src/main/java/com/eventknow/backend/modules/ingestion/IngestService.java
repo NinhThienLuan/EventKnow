@@ -92,6 +92,24 @@ public class IngestService {
                 throw new IllegalArgumentException("No sheets found in Excel file");
             }
 
+            // Save rawHeaderMap using the mapping from the first sheet
+            ExcelParsingService.SheetData firstSheet = sheets.get(0);
+            if (firstSheet.headerMapping() != null) {
+                Map<String, Object> headerMap = new LinkedHashMap<>();
+                headerMap.put("headerRowIndex", firstSheet.headerMapping().headerRowIndex());
+                headerMap.put("standardMapping", firstSheet.headerMapping().standardMapping());
+
+                Map<String, String> unmappedStr = new LinkedHashMap<>();
+                if (firstSheet.headerMapping().unmappedHeaders() != null) {
+                    for (Map.Entry<Integer, String> entry : firstSheet.headerMapping().unmappedHeaders().entrySet()) {
+                        unmappedStr.put(String.valueOf(entry.getKey()), entry.getValue());
+                    }
+                }
+                headerMap.put("unmappedHeaders", unmappedStr);
+                rawEvent.setRawHeaderMap(headerMap);
+                rawEvent = rawEventRepository.save(rawEvent); // persist mapping
+            }
+
             // 6. Split rows into batch jobs
             int totalJobsCreated = 0;
             for (ExcelParsingService.SheetData sheet : sheets) {

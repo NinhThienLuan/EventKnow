@@ -11,10 +11,20 @@ import java.util.*;
 @Service
 public class ExcelParsingService {
 
+    private final ExcelHeaderMapper excelHeaderMapper;
+
+    public ExcelParsingService(ExcelHeaderMapper excelHeaderMapper) {
+        this.excelHeaderMapper = excelHeaderMapper;
+    }
+
     public record RowData(int rowNumber, Map<String, String> data) {
     }
 
-    public record SheetData(String sheetName, List<String> headers, List<RowData> rows) {
+    public record SheetData(
+            String sheetName,
+            List<String> headers,
+            List<RowData> rows,
+            ExcelHeaderMapper.HeaderMappingResult headerMapping) {
     }
 
     public List<SheetData> parseWorkbook(byte[] fileBytes) throws IOException {
@@ -31,8 +41,11 @@ public class ExcelParsingService {
                     continue; // Empty sheet
                 }
 
-                // First row is headers
-                Row headerRow = sheet.getRow(0);
+                // Detect header mapping using ExcelHeaderMapper
+                ExcelHeaderMapper.HeaderMappingResult mapping = excelHeaderMapper.detectHeaderMapping(sheet);
+                int headerRowIndex = mapping.headerRowIndex();
+
+                Row headerRow = sheet.getRow(headerRowIndex);
                 if (headerRow == null) {
                     continue;
                 }
@@ -46,7 +59,7 @@ public class ExcelParsingService {
                 }
 
                 List<RowData> rows = new ArrayList<>();
-                for (int r = 1; r <= lastRowNum; r++) {
+                for (int r = headerRowIndex + 1; r <= lastRowNum; r++) {
                     Row row = sheet.getRow(r);
                     if (row == null) {
                         continue;
@@ -57,7 +70,8 @@ public class ExcelParsingService {
                     for (int c = 0; c < maxCol; c++) {
                         Cell cell = row.getCell(c);
                         String cellVal = cell == null ? "" : dataFormatter.formatCellValue(cell);
-                        String header = c < headers.size() ? headers.get(c) : "Column_" + c;
+                        String header = c < headers.size() && !headers.get(c).isEmpty() ? headers.get(c)
+                                : "Column_" + c;
 
                         rowMap.put(header, cellVal);
                         if (!cellVal.trim().isEmpty()) {
@@ -70,7 +84,7 @@ public class ExcelParsingService {
                     }
                 }
 
-                sheets.add(new SheetData(sheetName, headers, rows));
+                sheets.add(new SheetData(sheetName, headers, rows, mapping));
             }
         }
         return sheets;

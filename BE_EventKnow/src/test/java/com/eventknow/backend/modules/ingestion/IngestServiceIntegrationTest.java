@@ -131,35 +131,16 @@ public class IngestServiceIntegrationTest {
         public void testFullIngestionFlow() {
                 // 1. Setup mock response for Gemini client matching the structured JSON
                 // extraction schema specifications
-                GeminiExtractionClient.ExtractedEntity p1 = new GeminiExtractionClient.ExtractedEntity(
-                                "PERSON", "Nguyễn Văn A", "a.nguyen@hust.edu.vn", null, "GS.TS",
-                                "SPEAKER", "Diễn giả", "HUST", null, null,
-                                List.of("Chuyên gia AI"), List.of("AI_ML"), List.of("NLP"),
-                                List.of(new GeminiExtractionClient.DynamicAttributeDto("STT", "1")));
-                GeminiExtractionClient.ExtractedEntity o1 = new GeminiExtractionClient.ExtractedEntity(
-                                "ORGANIZATION", null, null, null, null,
-                                null, null, null, "HUST", "hust.edu.vn",
-                                List.of(), List.of(), List.of(), List.of());
 
-                GeminiExtractionClient.ExtractedEntity p2 = new GeminiExtractionClient.ExtractedEntity(
-                                "PERSON", "Trần Thị B", "b.tran@vnu.edu.vn", null, "Th.S",
-                                "GUEST", "Khách mời", "VNU", null, null,
-                                List.of("Nông nghiệp Xanh"), List.of("GREENTECH"), List.of("Organic"),
-                                List.of(new GeminiExtractionClient.DynamicAttributeDto("STT", "2")));
-                GeminiExtractionClient.ExtractedEntity o2 = new GeminiExtractionClient.ExtractedEntity(
-                                "ORGANIZATION", null, null, null, null,
-                                null, null, null, "VNU", "vnu.edu.vn",
-                                List.of(), List.of(), List.of(), List.of());
+                GeminiExtractionClient.LabeledRowResult lr1 = new GeminiExtractionClient.LabeledRowResult(
+                                2, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
+                GeminiExtractionClient.LabeledRowResult lr2 = new GeminiExtractionClient.LabeledRowResult(
+                                3, List.of("GREENTECH"), List.of("Organic"), "GUEST");
 
-                GeminiExtractionClient.BatchRowResult rRes1 = new GeminiExtractionClient.BatchRowResult(2,
-                                List.of(p1, o1));
-                GeminiExtractionClient.BatchRowResult rRes2 = new GeminiExtractionClient.BatchRowResult(3,
-                                List.of(p2, o2));
+                GeminiExtractionClient.GeminiLabelingResponse mockGeminiResp = new GeminiExtractionClient.GeminiLabelingResponse(
+                                List.of(lr1, lr2));
 
-                GeminiExtractionClient.GeminiExtractionResponse mockGeminiResp = new GeminiExtractionClient.GeminiExtractionResponse(
-                                List.of(rRes1, rRes2));
-
-                Mockito.when(geminiExtractionClient.extractBatch(any(), any(), anyString(), anyString(), anyInt(),
+                Mockito.when(geminiExtractionClient.labelBatch(any(), anyString(), anyString(), anyInt(),
                                 anyInt()))
                                 .thenReturn(mockGeminiResp);
 

@@ -37,6 +37,27 @@ public class GeminiExtractionClient {
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final Retry retry;
 
+    public record LabelingInputItem(
+            @JsonProperty("row_number") int rowNumber,
+            @JsonProperty("full_name") String fullName,
+            @JsonProperty("organization_text") String organizationText,
+            @JsonProperty("position") String position,
+            @JsonProperty("academic_title_raw") String academicTitleRaw,
+            @JsonProperty("academic_title_normalized") List<String> academicTitleNormalized,
+            @JsonProperty("research_fields_raw") List<String> researchFieldsRaw) {
+    }
+
+    public record LabeledRowResult(
+            @JsonProperty("row_number") int rowNumber,
+            @JsonProperty("research_domains") List<String> researchDomains,
+            @JsonProperty("expertise_tags") List<String> expertiseTags,
+            @JsonProperty("attendee_role") String attendeeRole) {
+    }
+
+    public record GeminiLabelingResponse(
+            @JsonProperty("labeled_rows") List<LabeledRowResult> labeledRows) {
+    }
+
     public record DynamicAttributeDto(
             @JsonProperty("key") String key,
             @JsonProperty("value") String value) {
@@ -105,14 +126,13 @@ public class GeminiExtractionClient {
         this.retry = RetryRegistry.of(config).retry("geminiApi");
     }
 
-    public GeminiExtractionResponse extractBatch(
-            List<ExcelParsingService.RowData> rows,
-            String[] rawHeaders,
+    public GeminiLabelingResponse labelBatch(
+            List<LabelingInputItem> items,
             String sourceFileName,
             String sheetName,
             int rowStart,
             int rowEnd) {
-        log.info("Extracting batch rows {} to {} for file: {}", rowStart, rowEnd, sourceFileName);
+        log.info("Labeling batch rows {} to {} for file: {}", rowStart, rowEnd, sourceFileName);
 
         if (geminiApiKey == null || geminiApiKey.trim().isEmpty()) {
             throw new IllegalStateException("GEMINI_API_KEY is not configured.");
@@ -120,7 +140,7 @@ public class GeminiExtractionClient {
 
         try {
             return retry.executeCheckedSupplier(
-                    () -> executeGeminiCall(rows, rawHeaders, sourceFileName, sheetName, rowStart, rowEnd));
+                    () -> executeGeminiCall(items, sourceFileName, sheetName, rowStart, rowEnd));
         } catch (Throwable t) {
             if (t instanceof HttpStatusCodeException) {
                 HttpStatusCodeException hex = (HttpStatusCodeException) t;
@@ -136,9 +156,8 @@ public class GeminiExtractionClient {
         }
     }
 
-    private GeminiExtractionResponse executeGeminiCall(
-            List<ExcelParsingService.RowData> rows,
-            String[] rawHeaders,
+    private GeminiLabelingResponse executeGeminiCall(
+            List<LabelingInputItem> items,
             String sourceFileName,
             String sheetName,
             int rowStart,
@@ -174,15 +193,11 @@ public class GeminiExtractionClient {
         Map<String, Object> parsedSchema = objectMapper.readValue(schemaJson, Map.class);
 
         // Format user message instructions
-        String rawHeaderArrayStr = objectMapper.writeValueAsString(rawHeaders);
-        String batchRowsAsJsonArrayStr = objectMapper.writeValueAsString(rows);
+        String batchRowsAsJsonArrayStr = objectMapper.writeValueAsString(items);
 
         String userPrompt = userInstructionTemplate
                 .replace("{source_file_name}", sourceFileName)
                 .replace("{sheet_name}", sheetName == null ? "Sheet1" : sheetName)
-                .replace("{raw_header_array}", rawHeaderArrayStr)
-                .replace("{row_start}", String.valueOf(rowStart))
-                .replace("{row_end}", String.valueOf(rowEnd))
                 .replace("{batch_rows_as_json_array}", batchRowsAsJsonArrayStr);
 
         // Build Payload
@@ -240,9 +255,10 @@ public class GeminiExtractionClient {
         Map<?, ?> part = (Map<?, ?>) parts.get(0);
         String responseText = (String) part.get("text");
 
-        log.info("Received raw extraction response: {}", responseText);
+        log.info("Received raw labeling response: {}", responseText);
 
-        // Deserialize response text conforming to GeminiExtractionResponse DTO
-        return objectMapper.readValue(responseText, GeminiExtractionResponse.class);
+        // Deserialize response text conforming to GeminiLabelingResponse DTO
+        return objectMapper.readValue(responseText, GeminiLabelingResponse.class);
     }
+
 }

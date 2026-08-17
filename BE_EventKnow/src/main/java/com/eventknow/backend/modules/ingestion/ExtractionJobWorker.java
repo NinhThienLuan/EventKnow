@@ -10,8 +10,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.List;
-import java.util.UUID;
+import java.util.*;
 
 @Component
 @RequiredArgsConstructor
@@ -22,7 +21,21 @@ public class ExtractionJobWorker {
     private final RawEventRepository rawEventRepository;
     private final GeminiExtractionClient geminiExtractionClient;
     private final ExtractionResultProcessor resultProcessor;
+    private final RuleBasedTitleNormalizer titleNormalizer;
     private final ObjectMapper objectMapper = new ObjectMapper();
+
+    private record PreExtractedRow(
+            int rowNumber,
+            String fullName,
+            String email,
+            String phone,
+            String organization,
+            String position,
+            String academicTitleRaw,
+            List<String> academicTitleNormalized,
+            List<String> researchFieldsRaw,
+            List<GeminiExtractionClient.DynamicAttributeDto> dynamicAttributes) {
+    }
 
     @Scheduled(fixedDelayString = "${eventknow.worker.polling-delay:30000}")
     @Transactional
@@ -44,6 +57,7 @@ public class ExtractionJobWorker {
     private void processJob(ExtractionJobEntity job) {
         log.info("Processing extraction job ID: {} (rows {} to {})", job.getId(), job.getRowStart(), job.getRowEnd());
         job.setStatus(ExtractionJobEntity.ExtractionStatus.RETRYING); // Mark as active/retrying during call
+        extractionJobRepository.save(job);
 
         try {
             // 1. Deserialize raw rows content & headers array
@@ -54,23 +68,240 @@ public class ExtractionJobWorker {
 
             String[] headers = objectMapper.readValue(job.getRawHeaderCols(), String[].class);
 
-            // 2. Execute Gemini extraction
-            GeminiExtractionClient.GeminiExtractionResponse response = geminiExtractionClient.extractBatch(
-                    rows,
-                    headers,
-                    job.getRawEvent().getSourceFileName(),
-                    job.getSourceSheetName(),
-                    job.getRowStart(),
-                    job.getRowEnd());
-
-            if (response == null || response.batchRows() == null) {
-                throw new ExtractionSchemaException("Invalid empty batch rows response returned from Gemini API");
+            // 2. Fetch rawHeaderMap from rawEvent to read cached standardMapping and
+            // unmappedHeaders
+            RawEventEntity rawEvent = job.getRawEvent();
+            Map<String, Object> headerMap = rawEvent.getRawHeaderMap();
+            if (headerMap == null) {
+                headerMap = Collections.emptyMap();
             }
 
-            // 3. Process structures (dedupe, save attendees, orgs, attendances)
-            resultProcessor.processBatchRows(job.getRawEvent().getId(), response.batchRows());
+            @SuppressWarnings("unchecked")
+            Map<String, Object> standardMapping = (Map<String, Object>) headerMap.get("standardMapping");
+            if (standardMapping == null) {
+                standardMapping = Collections.emptyMap();
+            }
 
-            // 4. Update status to DONE
+            @SuppressWarnings("unchecked")
+            Map<String, Object> unmappedHeaders = (Map<String, Object>) headerMap.get("unmappedHeaders");
+            if (unmappedHeaders == null) {
+                unmappedHeaders = Collections.emptyMap();
+            }
+
+            // 3. Extract java-side core fields
+            List<PreExtractedRow> preExtractedRows = new ArrayList<>();
+            List<GeminiExtractionClient.LabelingInputItem> labelingItems = new ArrayList<>();
+
+            for (ExcelParsingService.RowData row : rows) {
+                Map<String, String> rowData = row.data();
+
+                // Full name (standard name column or split names)
+                String fullName = null;
+                Integer fullNameIdx = getIndex(standardMapping, "fullName");
+                if (fullNameIdx != null) {
+                    fullName = getCellValue(headers, rowData, fullNameIdx);
+                } else {
+                    Integer lastIdx = getIndex(standardMapping, "lastNameSplit");
+                    Integer firstIdx = getIndex(standardMapping, "firstNameSplit");
+                    String lastVal = getCellValue(headers, rowData, lastIdx);
+                    String firstVal = getCellValue(headers, rowData, firstIdx);
+                    if (lastVal != null || firstVal != null) {
+                        fullName = ((lastVal != null ? lastVal : "") + " " + (firstVal != null ? firstVal : "")).trim();
+                    }
+                }
+
+                if (fullName == null || fullName.trim().isEmpty()) {
+                    continue; // Skip rows that don't have attendee names
+                }
+                fullName = fullName.trim();
+
+                // Email
+                Integer emailIdx = getIndex(standardMapping, "email");
+                String email = getCellValue(headers, rowData, emailIdx);
+                if (email != null)
+                    email = email.trim();
+
+                // Phone
+                Integer phoneIdx = getIndex(standardMapping, "phone");
+                String phoneRaw = getCellValue(headers, rowData, phoneIdx);
+                String phone = normalizePhone(phoneRaw);
+
+                // Organization
+                Integer orgIdx = getIndex(standardMapping, "organization");
+                String organization = getCellValue(headers, rowData, orgIdx);
+                if (organization != null)
+                    organization = organization.trim();
+
+                // Position
+                Integer posIdx = getIndex(standardMapping, "position");
+                String position = getCellValue(headers, rowData, posIdx);
+                if (position != null)
+                    position = position.trim();
+
+                // Academic Title
+                Integer academicTitleIdx = getIndex(standardMapping, "academicTitle");
+                String academicTitleRaw = getCellValue(headers, rowData, academicTitleIdx);
+                if (academicTitleRaw != null)
+                    academicTitleRaw = academicTitleRaw.trim();
+                List<String> academicTitleNormalized = academicTitleRaw != null
+                        ? titleNormalizer.normalize(academicTitleRaw)
+                        : Collections.emptyList();
+
+                // Research Fields
+                Integer researchIdx = getIndex(standardMapping, "researchFields");
+                String researchFieldsRawStr = getCellValue(headers, rowData, researchIdx);
+                List<String> researchFieldsRaw = Collections.emptyList();
+                if (researchFieldsRawStr != null && !researchFieldsRawStr.trim().isEmpty()) {
+                    researchFieldsRaw = Arrays.stream(researchFieldsRawStr.split("[,;]+"))
+                            .map(String::trim)
+                            .filter(s -> !s.isEmpty())
+                            .toList();
+                }
+
+                // Dynamic Attributes
+                List<GeminiExtractionClient.DynamicAttributeDto> dynamicAttributes = new ArrayList<>();
+                for (Map.Entry<String, Object> entry : unmappedHeaders.entrySet()) {
+                    Integer colIdx = null;
+                    try {
+                        colIdx = Integer.parseInt(entry.getKey());
+                    } catch (NumberFormatException ignored) {
+                    }
+                    if (colIdx != null && colIdx >= 0 && colIdx < headers.length) {
+                        String colName = headers[colIdx];
+                        String cellVal = rowData.get(colName);
+                        if (cellVal != null && !cellVal.trim().isEmpty()) {
+                            dynamicAttributes
+                                    .add(new GeminiExtractionClient.DynamicAttributeDto(colName, cellVal.trim()));
+                        }
+                    }
+                }
+
+                PreExtractedRow preExt = new PreExtractedRow(
+                        row.rowNumber(),
+                        fullName,
+                        email,
+                        phone,
+                        organization,
+                        position,
+                        academicTitleRaw,
+                        academicTitleNormalized,
+                        researchFieldsRaw,
+                        dynamicAttributes);
+                preExtractedRows.add(preExt);
+
+                labelingItems.add(new GeminiExtractionClient.LabelingInputItem(
+                        row.rowNumber(),
+                        fullName,
+                        organization,
+                        position,
+                        academicTitleRaw,
+                        academicTitleNormalized,
+                        researchFieldsRaw));
+            }
+
+            // 4. Call Gemini AI batch labeling with degradation support
+            GeminiExtractionClient.GeminiLabelingResponse response = null;
+            boolean aiSuccess = false;
+
+            if (!labelingItems.isEmpty()) {
+                try {
+                    response = geminiExtractionClient.labelBatch(
+                            labelingItems,
+                            job.getRawEvent().getSourceFileName(),
+                            job.getSourceSheetName(),
+                            job.getRowStart(),
+                            job.getRowEnd());
+                    aiSuccess = (response != null && response.labeledRows() != null);
+                } catch (Throwable t) {
+                    log.error(
+                            "AI Semantic labeling call failed on extraction job id: {}, triggering graceful degradation. Error: {}",
+                            job.getId(), t.getMessage());
+                }
+            }
+
+            // 5. Merge results (fallback to defaults if AI failed or missed a row)
+            Map<Integer, GeminiExtractionClient.LabeledRowResult> labelMap = new HashMap<>();
+            if (aiSuccess) {
+                for (GeminiExtractionClient.LabeledRowResult lRow : response.labeledRows()) {
+                    labelMap.put(lRow.rowNumber(), lRow);
+                }
+            }
+
+            List<GeminiExtractionClient.BatchRowResult> batchRowResults = new ArrayList<>();
+
+            for (PreExtractedRow preExt : preExtractedRows) {
+                GeminiExtractionClient.LabeledRowResult label = labelMap.get(preExt.rowNumber());
+
+                List<String> researchDomains;
+                List<String> expertiseTags;
+                String attendeeRole;
+                boolean aiLabeledThisRow = aiSuccess && label != null;
+
+                if (aiLabeledThisRow) {
+                    researchDomains = label.researchDomains();
+                    expertiseTags = label.expertiseTags();
+                    attendeeRole = label.attendeeRole();
+                } else {
+                    // Graceful Degradation fallbacks
+                    researchDomains = List.of("KHAC");
+                    expertiseTags = Collections.emptyList();
+                    attendeeRole = "GUEST";
+                }
+
+                // Add ai_labeled boolean flag to dynamic attributes snapshot
+                List<GeminiExtractionClient.DynamicAttributeDto> finalDynAttrs = new ArrayList<>(
+                        preExt.dynamicAttributes());
+                finalDynAttrs.add(
+                        new GeminiExtractionClient.DynamicAttributeDto("ai_labeled", String.valueOf(aiLabeledThisRow)));
+
+                // Build Extracted PERSON Entity
+                GeminiExtractionClient.ExtractedEntity personEntity = new GeminiExtractionClient.ExtractedEntity(
+                        "PERSON",
+                        preExt.fullName(),
+                        preExt.email(),
+                        preExt.phone(),
+                        preExt.academicTitleRaw(),
+                        attendeeRole,
+                        preExt.position(),
+                        preExt.organization(), // organizationTextRaw
+                        null, // orgName
+                        null, // emailDomain
+                        preExt.researchFieldsRaw(),
+                        researchDomains,
+                        expertiseTags,
+                        finalDynAttrs);
+
+                List<GeminiExtractionClient.ExtractedEntity> rowEntities = new ArrayList<>();
+                rowEntities.add(personEntity);
+
+                // Build Extracted ORGANIZATION Entity
+                if (preExt.organization() != null && !preExt.organization().isEmpty()) {
+                    String domain = extractEmailDomain(preExt.email());
+                    GeminiExtractionClient.ExtractedEntity orgEntity = new GeminiExtractionClient.ExtractedEntity(
+                            "ORGANIZATION",
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            null,
+                            preExt.organization(), // orgName
+                            domain, // emailDomain
+                            null,
+                            null,
+                            null,
+                            Collections.emptyList());
+                    rowEntities.add(orgEntity);
+                }
+
+                batchRowResults.add(new GeminiExtractionClient.BatchRowResult(preExt.rowNumber(), rowEntities));
+            }
+
+            // 6. Process DTO mappings and update DB
+            resultProcessor.processBatchRows(job.getRawEvent().getId(), batchRowResults);
+
+            // 7. Update status to DONE
             job.setStatus(ExtractionJobEntity.ExtractionStatus.DONE);
             job.setLastError(null);
             extractionJobRepository.save(job);
@@ -96,8 +327,64 @@ public class ExtractionJobWorker {
             extractionJobRepository.save(job);
         }
 
-        // 5. Check parent file status
+        // 8. Check parent file status
         checkAndUpdateParentStatus(job.getRawEvent());
+    }
+
+    private Integer getIndex(Map<String, Object> mapping, String key) {
+        Object val = mapping.get(key);
+        if (val == null) {
+            return null;
+        }
+        if (val instanceof Number) {
+            return ((Number) val).intValue();
+        }
+        try {
+            return Integer.parseInt(val.toString());
+        } catch (NumberFormatException e) {
+            return null;
+        }
+    }
+
+    private String getCellValue(String[] headers, Map<String, String> rowData, Integer colIdx) {
+        if (colIdx == null || colIdx < 0 || colIdx >= headers.length) {
+            return null;
+        }
+        String colName = headers[colIdx];
+        String val = rowData.get(colName);
+        if (val != null) {
+            val = val.trim();
+            if (val.isEmpty()) {
+                val = null;
+            }
+        }
+        return val;
+    }
+
+    public static String normalizePhone(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String digits = raw.replaceAll("[^0-9]", "");
+        if (digits.startsWith("84") && digits.length() == 11) {
+            digits = "0" + digits.substring(2);
+        }
+        if (digits.length() == 9 && (digits.startsWith("3") || digits.startsWith("5") || digits.startsWith("7")
+                || digits.startsWith("8") || digits.startsWith("9"))) {
+            digits = "0" + digits;
+        }
+        return digits.isEmpty() ? null : digits;
+    }
+
+    public static String extractEmailDomain(String email) {
+        if (email == null || !email.contains("@")) {
+            return null;
+        }
+        int atIdx = email.indexOf("@");
+        if (atIdx < email.length() - 1) {
+            return email.substring(atIdx + 1).trim().toLowerCase();
+        }
+        return null;
     }
 
     private void checkAndUpdateParentStatus(RawEventEntity rawEvent) {
