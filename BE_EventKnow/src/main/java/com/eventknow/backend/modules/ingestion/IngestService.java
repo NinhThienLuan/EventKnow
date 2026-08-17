@@ -92,23 +92,26 @@ public class IngestService {
                 throw new IllegalArgumentException("No sheets found in Excel file");
             }
 
-            // Save rawHeaderMap using the mapping from the first sheet
-            ExcelParsingService.SheetData firstSheet = sheets.get(0);
-            if (firstSheet.headerMapping() != null) {
-                Map<String, Object> headerMap = new LinkedHashMap<>();
-                headerMap.put("headerRowIndex", firstSheet.headerMapping().headerRowIndex());
-                headerMap.put("standardMapping", firstSheet.headerMapping().standardMapping());
+            // Save rawHeaderMap for all sheets using nested map by sheet name
+            Map<String, Object> headerMapOuter = new LinkedHashMap<>();
+            for (ExcelParsingService.SheetData sheet : sheets) {
+                if (sheet.headerMapping() != null) {
+                    Map<String, Object> sheetMap = new LinkedHashMap<>();
+                    sheetMap.put("headerRowIndex", sheet.headerMapping().headerRowIndex());
+                    sheetMap.put("standardMapping", sheet.headerMapping().standardMapping());
 
-                Map<String, String> unmappedStr = new LinkedHashMap<>();
-                if (firstSheet.headerMapping().unmappedHeaders() != null) {
-                    for (Map.Entry<Integer, String> entry : firstSheet.headerMapping().unmappedHeaders().entrySet()) {
-                        unmappedStr.put(String.valueOf(entry.getKey()), entry.getValue());
+                    Map<String, String> unmappedStr = new LinkedHashMap<>();
+                    if (sheet.headerMapping().unmappedHeaders() != null) {
+                        for (Map.Entry<Integer, String> entry : sheet.headerMapping().unmappedHeaders().entrySet()) {
+                            unmappedStr.put(String.valueOf(entry.getKey()), entry.getValue());
+                        }
                     }
+                    sheetMap.put("unmappedHeaders", unmappedStr);
+                    headerMapOuter.put(sheet.sheetName(), sheetMap);
                 }
-                headerMap.put("unmappedHeaders", unmappedStr);
-                rawEvent.setRawHeaderMap(headerMap);
-                rawEvent = rawEventRepository.save(rawEvent); // persist mapping
             }
+            rawEvent.setRawHeaderMap(headerMapOuter);
+            rawEvent = rawEventRepository.save(rawEvent); // persist mapping
 
             // 6. Split rows into batch jobs
             int totalJobsCreated = 0;

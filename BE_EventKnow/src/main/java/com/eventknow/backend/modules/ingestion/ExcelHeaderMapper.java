@@ -31,10 +31,11 @@ public class ExcelHeaderMapper {
         FIELD_PATTERNS.put("email", List.of(
                 Pattern.compile(".*(email|e-mail|thu\\s+dien\\s+tu).*")));
         FIELD_PATTERNS.put("phone", List.of(
-                Pattern.compile(".*(dien\\s+thoai|\\bsdt\\b|so\\s+dien\\s+thoai|phone|\\btel\\b|telephone).*")));
+                Pattern.compile(
+                        ".*\\b(dien\\s*thoai|sdt|tel|mobile|phone|dtdd|so\\s+dtdd|dien\\s+thoai\\s+di\\s+dong)\\b.*")));
         FIELD_PATTERNS.put("organization", List.of(
                 Pattern.compile(
-                        ".*(don\\s+vi|co\\s+quan|truong|vien|cong\\s+ty|noi\\s+cong\\s+tac|cong\\s+tac|organization|company).*")));
+                        ".*\\b(truong\\s+dai\\s+hoc|truong\\s+thpt|truong\\s+cao\\s+dang|dai\\s+hoc|hoc\\s+vien|vien\\s+nghien\\s+cuu|don\\s+vi|co\\s+quan|cong\\s+ty|cty|noi\\s+cong\\s+tac|cong\\s+tac|organization|company)\\b.*")));
         FIELD_PATTERNS.put("position", List.of(
                 Pattern.compile(".*(chuc\\s+vu|chuc\\s+danh|vi\\s+tri|position|title).*")));
         FIELD_PATTERNS.put("academicTitle", List.of(

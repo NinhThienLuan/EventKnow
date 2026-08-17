@@ -380,6 +380,138 @@ public class IngestServiceIntegrationTest {
                 }
         }
 
+        @Autowired
+        private ExtractionJobRepository extractionJobRepository;
+        @Autowired
+        private org.springframework.jdbc.core.JdbcTemplate jdbcTemplate;
+
+        @Test
+        public void findSuspiciousSource() {
+                System.out.println("======= FINDING SUSPICIOUS SOURCES =======");
+                List<Map<String, Object>> jobs = jdbcTemplate.queryForList(
+                                "SELECT j.raw_event_id, j.batch_index, j.raw_header_cols, j.raw_rows_content, r.source_file_name, r.raw_header_map "
+                                                +
+                                                "FROM extraction_jobs j JOIN raw_events r ON j.raw_event_id = r.id " +
+                                                "WHERE j.raw_rows_content LIKE '%Hồ Ngọc Anh%' OR j.raw_rows_content LIKE '%Nguyễn Minh Khôi%' OR j.raw_rows_content LIKE '%Nguyễn Minh Khải%' OR j.raw_rows_content LIKE '%Phạm Tấn Anh Vũ%'");
+                System.out.println("FOUND SUSPICIOUS JOBS COUNT: " + jobs.size());
+                for (Map<String, Object> job : jobs) {
+                        System.out.println("SOURCE FILE: " + job.get("source_file_name"));
+                        System.out.println("RAW EVENT ID: " + job.get("raw_event_id"));
+                        System.out.println("HEADER MAP: " + job.get("raw_header_map"));
+                        System.out.println("RAW HEADERS: " + job.get("raw_header_cols"));
+                }
+                System.out.println("============================================");
+        }
+
+        @Test
+        public void diagnoseDatabaseIssues() {
+                System.out.println("======= DIAGNOSING DATABASE ISSUES =======");
+
+                // 1. Diagnostics for Failed Extraction Jobs
+                List<Map<String, Object>> failedJobs = jdbcTemplate.queryForList(
+                                "SELECT id, raw_event_id, status, last_error, row_start, row_end FROM extraction_jobs WHERE status = 'FAILED'");
+                System.out.println("FAILED JOBS COUNT: " + failedJobs.size());
+                for (Map<String, Object> job : failedJobs) {
+                        System.out.println("JOB ID: " + job.get("id") + " | RawEventID: " + job.get("raw_event_id")
+                                        + " | Range: " + job.get("row_start") + " to " + job.get("row_end"));
+                        System.out.println("ERROR MESSAGE: " + job.get("last_error"));
+                }
+
+                // 2. Diagnostics for Raw Events (Header Maps)
+                List<Map<String, Object>> rawEvents = jdbcTemplate.queryForList(
+                                "SELECT id, source_file_name, raw_header_map FROM raw_events");
+                System.out.println("RAW EVENTS COUNT: " + rawEvents.size());
+                for (Map<String, Object> re : rawEvents) {
+                        System.out.println("RAW EVENT ID: " + re.get("id") + " | File: " + re.get("source_file_name")
+                                        + " | HeaderMap: " + re.get("raw_header_map"));
+                        List<Map<String, Object>> jobs = jdbcTemplate.queryForList(
+                                        "SELECT batch_index, row_start, row_end, raw_header_cols, raw_rows_content FROM extraction_jobs WHERE raw_event_id = ?",
+                                        re.get("id"));
+                        System.out.println("  TOTAL JOBS: " + jobs.size());
+                        for (Map<String, Object> job : jobs) {
+                                System.out.println("  JOB batch=" + job.get("batch_index") + " range="
+                                                + job.get("row_start") + " to " + job.get("row_end"));
+                                System.out.println("    RAW HEADERS: " + job.get("raw_header_cols"));
+                                System.out.println("    SAMPLE ROWS: " + job.get("raw_rows_content"));
+                        }
+                }
+
+                // 3. Diagnostics for Suspicious Orgs & Attendees
+                List<Map<String, Object>> attendees = jdbcTemplate.queryForList(
+                                "SELECT ap.id, ap.full_name, ap.email, ap.position, org.org_name, ap.dynamic_attributes FROM attendee_profiles ap LEFT JOIN organizations org ON ap.organization_id = org.id");
+                System.out.println("ATTENDEES COUNT: " + attendees.size());
+                for (Map<String, Object> att : attendees) {
+                        String orgName = String.valueOf(att.get("org_name"));
+                        if (orgName.contains("Giám đốc") || orgName.contains("@") || orgName.contains(".com")
+                                        || orgName.contains(".vn")) {
+                                System.out.println("SUSPICIOUS ATTENDEE: Name=" + att.get("full_name") + " | Email="
+                                                + att.get("email")
+                                                + " | Position=" + att.get("position") + " | Org=" + orgName
+                                                + " | DynamicAttributes=" + att.get("dynamic_attributes"));
+                        }
+                }
+
+                System.out.println("==========================================");
+        }
+
+        @Test
+        public void testRealExcelFilesMapping() throws IOException {
+                ExcelHeaderMapper mapper = new ExcelHeaderMapper();
+                String[] files = {
+                                "../test/01_CoBan_DanhSachKhachMoi.xlsx",
+                                "../test/02_NangCao_DataLinhHoat.xlsx",
+                                "../test/03_PhucTap_Sponsor_Dedupe.xlsx"
+                };
+
+                for (String path : files) {
+                        try (java.io.FileInputStream fis = new java.io.FileInputStream(path);
+                                        Workbook workbook = new XSSFWorkbook(fis)) {
+                                Sheet sheet = workbook.getSheetAt(0);
+                                ExcelHeaderMapper.HeaderMappingResult result = mapper.detectHeaderMapping(sheet);
+                                System.out.println("FILE: " + path + " | Header Row Index: " + result.headerRowIndex());
+                                System.out.println("Standard Mappings: " + result.standardMapping());
+                                System.out.println("Unmapped Columns: " + result.unmappedHeaders());
+
+                                // Assert that we mapped at least fullName because all these list files contain
+                                // name fields
+                                boolean hasName = result.standardMapping().containsKey("fullName") ||
+                                                (result.standardMapping().containsKey("lastNameSplit") && result
+                                                                .standardMapping().containsKey("firstNameSplit"));
+                                assertTrue(hasName, "Mapping should find name for " + path);
+                        }
+                }
+        }
+
+        @Test
+        public void testDynamicAttributesFallback() throws IOException {
+                // 1. Create a sheet with weird headers not in the regex list
+                try (Workbook workbook = new XSSFWorkbook()) {
+                        Sheet sheet = workbook.createSheet("Danh sách lạ");
+                        Row header = sheet.createRow(0);
+                        header.createCell(0).setCellValue("Họ tên");
+                        header.createCell(1).setCellValue("Cột Lạ Chưa Từng Thấy 1");
+                        header.createCell(2).setCellValue("Chức vụ Khóa Học");
+
+                        Row r1 = sheet.createRow(1);
+                        r1.createCell(0).setCellValue("Đại biểu Lạ");
+                        r1.createCell(1).setCellValue("Value Lạ 1");
+                        r1.createCell(2).setCellValue("Lớp trưởng");
+
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        workbook.write(bos);
+                        byte[] bytes = bos.toByteArray();
+
+                        ExcelHeaderMapper mapper = new ExcelHeaderMapper();
+                        ExcelHeaderMapper.HeaderMappingResult result = mapper.detectHeaderMapping(sheet);
+
+                        System.out.println("TEST DYNAMIC FALLBACK STANDARD: " + result.standardMapping());
+                        System.out.println("TEST DYNAMIC FALLBACK UNMAPPED: " + result.unmappedHeaders());
+
+                        // Verify names found
+                        assertTrue(result.standardMapping().containsKey("fullName"));
+                }
+        }
+
         private void orgRepositoryCheckReset() {
                 // Clean event attendance first since it references organizations and profiles
                 eventAttendanceRepository.deleteAll();

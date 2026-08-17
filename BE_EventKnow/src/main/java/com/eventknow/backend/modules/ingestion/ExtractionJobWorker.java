@@ -71,9 +71,20 @@ public class ExtractionJobWorker {
             // 2. Fetch rawHeaderMap from rawEvent to read cached standardMapping and
             // unmappedHeaders
             RawEventEntity rawEvent = job.getRawEvent();
-            Map<String, Object> headerMap = rawEvent.getRawHeaderMap();
+            Map<String, Object> rawHeaderMap = rawEvent.getRawHeaderMap();
+            if (rawHeaderMap == null) {
+                rawHeaderMap = Collections.emptyMap();
+            }
+
+            Map<String, Object> headerMap = null;
+            String sheetName = job.getSourceSheetName();
+            if (sheetName != null && rawHeaderMap.containsKey(sheetName)) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> m = (Map<String, Object>) rawHeaderMap.get(sheetName);
+                headerMap = m;
+            }
             if (headerMap == null) {
-                headerMap = Collections.emptyMap();
+                headerMap = rawHeaderMap;
             }
 
             @SuppressWarnings("unchecked")
@@ -205,8 +216,13 @@ public class ExtractionJobWorker {
 
             if (!labelingItems.isEmpty()) {
                 try {
+                    List<GeminiExtractionClient.LabelingInputItem> sampledItems = new ArrayList<>(labelingItems);
+                    if (sampledItems.size() > 3) {
+                        Collections.shuffle(sampledItems, new Random(42));
+                        sampledItems = sampledItems.subList(0, 3);
+                    }
                     response = geminiExtractionClient.labelBatch(
-                            labelingItems,
+                            sampledItems,
                             job.getRawEvent().getSourceFileName(),
                             job.getSourceSheetName(),
                             job.getRowStart(),

@@ -63,11 +63,16 @@ public class ExtractionResultProcessor {
 
                 OrganizationEntity orgEntity = resolveOrCreateOrganization(orgName.trim(), orgEnt.emailDomain(),
                         orgEnt.dynamicAttributesMap());
+                if (orgEntity == null) {
+                    continue;
+                }
                 localResolvedOrgs.put(orgName.trim().toLowerCase(), orgEntity);
 
                 // Create attendance record for the organization
                 createAttendanceRecord(rawEvent, null, orgEntity, rowNum, orgEnt.dynamicAttributesMap());
             }
+
+            Map<String, AttendeeProfileEntity> localResolvedAttendees = new HashMap<>();
 
             // 2. Process Persons
             for (GeminiExtractionClient.ExtractedEntity pEnt : personEntities) {
@@ -93,7 +98,18 @@ public class ExtractionResultProcessor {
                     linkedOrg = localResolvedOrgs.values().iterator().next();
                 }
 
-                AttendeeProfileEntity personEntity = resolveOrCreateAttendee(pEnt, linkedOrg);
+                String email = pEnt.email();
+                AttendeeProfileEntity personEntity = null;
+                if (email != null && !email.trim().isEmpty()) {
+                    personEntity = localResolvedAttendees.get(email.trim().toLowerCase());
+                }
+
+                if (personEntity == null) {
+                    personEntity = resolveOrCreateAttendee(pEnt, linkedOrg);
+                    if (email != null && !email.trim().isEmpty()) {
+                        localResolvedAttendees.put(email.trim().toLowerCase(), personEntity);
+                    }
+                }
 
                 // Create attendance record for the person
                 Map<String, Object> snapshotData = new HashMap<>();
@@ -110,28 +126,59 @@ public class ExtractionResultProcessor {
         }
     }
 
+    private static final Set<String> PUBLIC_EMAIL_DOMAINS = Set.of(
+            "gmail.com", "googlemail.com", "yahoo.com", "yahoo.com.vn",
+            "outlook.com", "hotmail.com", "icloud.com", "mail.com", "protonmail.com");
+
+    private static final Set<String> ORG_STOP_WORDS = Set.of(
+            "co", "khong", "ca nhan", "none", "null", "chua co", "tu do", "freelance", "nan", "-");
+
+    private boolean isCorporateDomain(String domain) {
+        if (domain == null || domain.isBlank())
+            return false;
+        return !PUBLIC_EMAIL_DOMAINS.contains(domain.toLowerCase().trim());
+    }
+
+    private boolean isValidOrgName(String normalizedName) {
+        if (normalizedName == null || normalizedName.length() < 2)
+            return false;
+        return !ORG_STOP_WORDS.contains(normalizedName);
+    }
+
     private OrganizationEntity resolveOrCreateOrganization(String orgName, String emailDomain,
             Map<String, Object> dynAttrs) {
+        if (orgName == null || orgName.isBlank()) {
+            return null; // Không tạo tổ chức rỗng
+        }
+
         String cleanName = orgName.trim();
         String normalizedName = normalizeString(cleanName);
-        String cleanDomain = emailDomain != null ? emailDomain.trim().toLowerCase() : null;
 
+        // Chặn stopwords (Có, Không, Cá nhân,...)
+        if (!isValidOrgName(normalizedName)) {
+            return null;
+        }
+
+        String cleanDomain = (emailDomain != null) ? emailDomain.trim().toLowerCase() : null;
         Optional<OrganizationEntity> matched = Optional.empty();
 
-        // Exact dedupe checks
-        if (cleanDomain != null && !cleanDomain.isEmpty()) {
+        // 1. Chỉ dedupe theo Domain NẾU là Domain doanh nghiệp/trường viện riêng
+        if (isCorporateDomain(cleanDomain)) {
             matched = organizationRepository.findByEmailDomainIgnoreCaseAndIsActiveTrue(cleanDomain);
         }
+
+        // 2. Dedupe theo Normalized Name
         if (matched.isEmpty()) {
             matched = organizationRepository.findByNormalizedNameAndIsActiveTrue(normalizedName);
         }
+
+        // 3. Dedupe theo Clean Name
         if (matched.isEmpty()) {
             matched = organizationRepository.findByOrgNameIgnoreCaseAndIsActiveTrue(cleanName);
         }
 
         if (matched.isPresent()) {
             OrganizationEntity org = matched.get();
-            // Single-hop merge check
             if (org.getMergedInto() != null) {
                 org = getCanonicalOrg(org);
             }
@@ -139,16 +186,16 @@ public class ExtractionResultProcessor {
             return org;
         }
 
-        // Create new organization
+        // 4. Tạo mới (chỉ lưu emailDomain nếu không phải public domain)
         OrganizationEntity newOrg = OrganizationEntity.builder()
                 .orgName(cleanName)
                 .normalizedName(normalizedName)
-                .emailDomain(cleanDomain)
+                .emailDomain(isCorporateDomain(cleanDomain) ? cleanDomain : null)
                 .dynamicAttributes(dynAttrs != null ? dynAttrs : new HashMap<>())
                 .isActive(true)
                 .build();
 
-        OrganizationEntity saved = organizationRepository.save(newOrg);
+        OrganizationEntity saved = organizationRepository.saveAndFlush(newOrg);
         log.info("Created new Organization: {} with orgId {}", cleanName, saved.getId());
         return saved;
     }
@@ -208,7 +255,7 @@ public class ExtractionResultProcessor {
                 .isActive(true)
                 .build();
 
-        AttendeeProfileEntity saved = attendeeProfileRepository.save(newPerson);
+        AttendeeProfileEntity saved = attendeeProfileRepository.saveAndFlush(newPerson);
         log.info("Created new AttendeeProfile: {} with attendeeId {}", saved.getFullName(), saved.getId());
         return saved;
     }
