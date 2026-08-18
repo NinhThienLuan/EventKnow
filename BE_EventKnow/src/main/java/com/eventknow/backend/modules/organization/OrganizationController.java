@@ -7,7 +7,6 @@ import com.eventknow.backend.modules.identity.EventAttendanceRepository;
 import com.eventknow.backend.modules.identity.OrganizationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
-import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.transaction.annotation.Transactional;
@@ -70,18 +69,19 @@ public class OrganizationController {
         OrganizationEntity organization = opt.get();
 
         // Redirect if entity has been merged (inactive)
+        OrganizationEntity canonical = organization;
+        boolean redirected = false;
         if (!organization.isActive() && organization.getMergedInto() != null) {
-            OrganizationEntity canonical = organization;
-            while (canonical.getMergedInto() != null) {
-                canonical = canonical.getMergedInto();
-            }
-            log.info("Redirecting merged organization {} to active canonical {}", id, canonical.getId());
-            HttpHeaders headers = new HttpHeaders();
-            headers.add(HttpHeaders.LOCATION, "/api/organizations/" + canonical.getId());
-            return new ResponseEntity<>(headers, HttpStatus.FOUND);
+            canonical = organization.getMergedInto();
+            redirected = true;
+            log.info("Redirecting merged organization {}. Sending canonical {}", id, canonical.getId());
         }
 
-        Map<String, Object> detail = mapToOrganizationDetail(organization);
+        Map<String, Object> detail = mapToOrganizationDetail(canonical);
+        if (redirected) {
+            detail.put("redirectedFrom", id.toString());
+            detail.put("canonicalId", canonical.getId().toString());
+        }
 
         return ResponseEntity.ok(Map.of("status", "success", "data", detail));
     }

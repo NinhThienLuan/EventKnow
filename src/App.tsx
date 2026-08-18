@@ -19,6 +19,7 @@ import { DashboardAnalyticsView } from './components/DashboardAnalyticsView';
 import { PartnersMgmtView } from './components/PartnersMgmtView';
 import { GoogleAuthModal, UserProfile } from './components/GoogleAuthModal';
 import { GoogleDrivePicker, DriveFileItem } from './components/GoogleDrivePicker';
+import { EventDetailView } from './components/EventDetailView';
 
 import { MOCK_REPORTS, SUGGESTION_CARDS, RECENT_REPORTS_LIST, MOCK_CITATIONS, MOCK_EVENT_RECORDS } from './data/mockData';
 import { AIReport, CitationSource, SuggestionCard } from './types';
@@ -42,7 +43,14 @@ export default function App() {
     }
   });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
-  const [selectedSourceId, setSelectedSourceId] = useState<string>('db-core');
+  const [selectedSourceId, setSelectedSourceId] = useState<string>(() => {
+    try {
+      const saved = localStorage.getItem('eventknow_selected_source_id');
+      return saved || 'db-core';
+    } catch {
+      return 'db-core';
+    }
+  });
   const [activeSimulatedEmail, setActiveSimulatedEmail] = useState<string>('luanninh2005@gmail.com');
 
   // Google OAuth User State
@@ -111,6 +119,14 @@ export default function App() {
       console.warn('Failed to save active view setting', e);
     }
   }, [activeNavView]);
+
+  React.useEffect(() => {
+    try {
+      localStorage.setItem('eventknow_selected_source_id', selectedSourceId);
+    } catch (e) {
+      console.warn('Failed to save selected source view setting', e);
+    }
+  }, [selectedSourceId]);
 
   const handleSaveUserProfile = (profile: UserProfile) => {
     setUserProfile(profile);
@@ -336,7 +352,10 @@ export default function App() {
         >
           <SourceTree
             selectedSourceId={selectedSourceId}
-            onSelectSource={setSelectedSourceId}
+            onSelectSource={(eventId) => {
+              setSelectedSourceId(eventId);
+              setActiveNavView('event-detail');
+            }}
             onSelectReport={(reportId) => {
               handleSelectRecentReport(reportId);
               setIsMobileMenuOpen(false);
@@ -354,7 +373,13 @@ export default function App() {
 
         {/* Central Fluid Dashboard, Views or Home Area */}
         <main className="flex-1 overflow-y-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6 min-w-0">
-          {activeNavView === 'reports' ? (
+          {activeNavView === 'event-detail' ? (
+            <EventDetailView
+              eventId={selectedSourceId}
+              language={language}
+              onBack={() => setActiveNavView('dashboard')}
+            />
+          ) : activeNavView === 'reports' ? (
             <div className="space-y-4 max-w-5xl mx-auto w-full animate-fade-in">
               {/* Toolbar for Dedicated Report Reading View */}
               <div className="bg-white border border-[#DCE1E6] rounded-xl p-3 sm:p-4 shadow-2xs flex flex-col sm:flex-row sm:items-center justify-between gap-3">

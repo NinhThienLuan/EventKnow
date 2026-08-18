@@ -46,55 +46,104 @@ public class IngestService {
         // 1. Resolve department
         String department = departmentResolutionService.resolveDepartment(parentFolderId, manualDepartment);
 
-        // 2. Resolve or parse Event Meta
-        String eventName = manualEventName;
-        LocalDate eventDate = manualEventDate;
-        if (eventName == null || eventName.trim().isEmpty()) {
-            EventMeta meta = parseEventMetaFromFileName(originalFileName);
-            eventName = meta.name();
-            eventDate = meta.date();
-        }
-
-        UUID eventId = eventResolutionService.resolveCanonicalEvent(eventName, eventDate, department);
-        com.eventknow.backend.model.entity.Core.EventEntity eventEntity = eventRepository.findById(eventId)
-                .orElse(null);
-
-        // 3. Create RawEventEntity
-        RawEventEntity rawEvent = RawEventEntity.builder()
-                .googleDriveFileId(googleDriveFileId)
-                .sourceFileName(originalFileName)
-                .driveOwnerEmail(ownerEmail)
-                .department(department)
-                .event(eventEntity)
-                .eventName(eventName)
-                .eventDate(eventDate)
-                .sourceType(RawEventEntity.SourceType.EXCEL)
-                .ingestionStatus(RawEventEntity.IngestionStatus.PROCESSING)
-                .build();
-
-        rawEvent = rawEventRepository.save(rawEvent);
-
+        // 2. Download and parse workbook first to handle multi-sheet partition
+        byte[] activeBytes = fileBytes;
+        List<ExcelParsingService.SheetData> sheets = null;
         try {
-            // 4. Download file if bytes are empty and drive ID is present
-            byte[] activeBytes = fileBytes;
             if ((activeBytes == null || activeBytes.length == 0) && googleDriveFileId != null
                     && !googleDriveFileId.isEmpty()) {
                 activeBytes = driveFileContentService.downloadFileContent(googleDriveFileId, ownerEmail);
             }
-
             if (activeBytes == null || activeBytes.length == 0) {
                 throw new IllegalArgumentException("No file content received for ingestion");
             }
-
-            // 5. Parse sheet structures
-            List<ExcelParsingService.SheetData> sheets = excelParsingService.parseWorkbook(activeBytes);
-            if (sheets.isEmpty()) {
+            sheets = excelParsingService.parseWorkbook(activeBytes);
+            if (sheets == null || sheets.isEmpty()) {
                 throw new IllegalArgumentException("No sheets found in Excel file");
             }
+        } catch (DriveConnectionExpiredException driveEx) {
+            log.error("Google Drive connection credentials expired: {}", driveEx.getMessage());
+            RawEventEntity rawEvent = RawEventEntity.builder()
+                    .googleDriveFileId(googleDriveFileId)
+                    .sourceFileName(originalFileName)
+                    .driveOwnerEmail(ownerEmail)
+                    .department(department)
+                    .eventName(manualEventName != null && !manualEventName.trim().isEmpty() ? manualEventName
+                            : originalFileName)
+                    .eventDate(manualEventDate != null ? manualEventDate : LocalDate.now())
+                    .sourceType(RawEventEntity.SourceType.EXCEL)
+                    .ingestionStatus(RawEventEntity.IngestionStatus.FAILED)
+                    .errorMessage("DRIVE_CONNECTION_EXPIRED: " + driveEx.getMessage())
+                    .build();
+            rawEvent = rawEventRepository.save(rawEvent);
+            return rawEvent.getId();
+        } catch (Exception ex) {
+            log.error("Failed to download or parse Excel file: ", ex);
+            RawEventEntity rawEvent = RawEventEntity.builder()
+                    .googleDriveFileId(googleDriveFileId)
+                    .sourceFileName(originalFileName)
+                    .driveOwnerEmail(ownerEmail)
+                    .department(department)
+                    .eventName(manualEventName != null && !manualEventName.trim().isEmpty() ? manualEventName
+                            : originalFileName)
+                    .eventDate(manualEventDate != null ? manualEventDate : LocalDate.now())
+                    .sourceType(RawEventEntity.SourceType.EXCEL)
+                    .ingestionStatus(RawEventEntity.IngestionStatus.FAILED)
+                    .errorMessage("INGESTION_ERROR: " + ex.getMessage())
+                    .build();
+            rawEvent = rawEventRepository.save(rawEvent);
+            return rawEvent.getId();
+        }
 
-            // Save rawHeaderMap for all sheets using nested map by sheet name
-            Map<String, Object> headerMapOuter = new LinkedHashMap<>();
-            for (ExcelParsingService.SheetData sheet : sheets) {
+        // 3. Process each sheet as a separate RawEventEntity and resolve its canonical
+        // EventEntity
+        UUID returnedRawEventId = null;
+        int totalJobsCreated = 0;
+
+        for (ExcelParsingService.SheetData sheet : sheets) {
+            List<ExcelParsingService.RowData> rows = sheet.rows();
+            if (rows.isEmpty()) {
+                continue;
+            }
+
+            // Resolve sheet event meta
+            String sheetEventName = manualEventName;
+            LocalDate sheetEventDate = manualEventDate;
+            if (sheetEventName == null || sheetEventName.trim().isEmpty()) {
+                EventMeta meta = parseEventMeta(originalFileName, sheet.sheetName());
+                sheetEventName = meta.name();
+                if (sheetEventDate == null) {
+                    sheetEventDate = meta.date();
+                }
+            }
+
+            UUID eventId = eventResolutionService.resolveCanonicalEvent(sheetEventName, sheetEventDate, department);
+            com.eventknow.backend.model.entity.Core.EventEntity eventEntity = eventRepository.findById(eventId)
+                    .orElse(null);
+
+            // Create individual RawEventEntity for this sheet
+            RawEventEntity rawEvent = RawEventEntity.builder()
+                    .googleDriveFileId(googleDriveFileId)
+                    .sourceFileName(originalFileName)
+                    .driveOwnerEmail(ownerEmail)
+                    .department(department)
+                    .event(eventEntity)
+                    .eventName(sheetEventName)
+                    .eventDate(sheetEventDate)
+                    .sheetName(sheet.sheetName())
+                    .sourceType(RawEventEntity.SourceType.EXCEL)
+                    .ingestionStatus(RawEventEntity.IngestionStatus.PROCESSING)
+                    .build();
+
+            rawEvent = rawEventRepository.save(rawEvent);
+
+            if (returnedRawEventId == null) {
+                returnedRawEventId = rawEvent.getId();
+            }
+
+            try {
+                // Save rawHeaderMap for this sheet
+                Map<String, Object> headerMapOuter = new LinkedHashMap<>();
                 if (sheet.headerMapping() != null) {
                     Map<String, Object> sheetMap = new LinkedHashMap<>();
                     sheetMap.put("headerRowIndex", sheet.headerMapping().headerRowIndex());
@@ -109,20 +158,13 @@ public class IngestService {
                     sheetMap.put("unmappedHeaders", unmappedStr);
                     headerMapOuter.put(sheet.sheetName(), sheetMap);
                 }
-            }
-            rawEvent.setRawHeaderMap(headerMapOuter);
-            rawEvent = rawEventRepository.save(rawEvent); // persist mapping
+                rawEvent.setRawHeaderMap(headerMapOuter);
+                rawEvent = rawEventRepository.save(rawEvent);
 
-            // 6. Split rows into batch jobs
-            int totalJobsCreated = 0;
-            for (ExcelParsingService.SheetData sheet : sheets) {
-                List<ExcelParsingService.RowData> rows = sheet.rows();
-                if (rows.isEmpty()) {
-                    continue;
-                }
-
+                // Split sheet rows into batch jobs
                 String[] headers = sheet.headers().toArray(new String[0]);
                 int rowCount = rows.size();
+                int sheetJobsCreated = 0;
                 for (int startIdx = 0; startIdx < rowCount; startIdx += defaultBatchSize) {
                     int endIdx = Math.min(startIdx + defaultBatchSize, rowCount);
                     List<ExcelParsingService.RowData> subList = rows.subList(startIdx, endIdx);
@@ -130,7 +172,6 @@ public class IngestService {
                     int rowStart = subList.get(0).rowNumber();
                     int rowEnd = subList.get(subList.size() - 1).rowNumber();
 
-                    // Serialize raw rows content and headers content to string
                     String rawRowsStr = objectMapper.writeValueAsString(subList);
                     String headersStr = objectMapper.writeValueAsString(headers);
 
@@ -138,7 +179,7 @@ public class IngestService {
                             .rawEvent(rawEvent)
                             .status(ExtractionJobEntity.ExtractionStatus.PENDING)
                             .retryCount(0)
-                            .batchIndex(totalJobsCreated)
+                            .batchIndex(sheetJobsCreated)
                             .rowStart(rowStart)
                             .rowEnd(rowEnd)
                             .rawHeaderCols(headersStr)
@@ -147,32 +188,43 @@ public class IngestService {
                             .build();
 
                     extractionJobRepository.save(job);
+                    sheetJobsCreated++;
                     totalJobsCreated++;
                 }
-            }
 
-            if (totalJobsCreated == 0) {
+                if (sheetJobsCreated == 0) {
+                    rawEvent.setIngestionStatus(RawEventEntity.IngestionStatus.FAILED);
+                    rawEvent.setErrorMessage("The sheet contained no valid rows data to process.");
+                    rawEventRepository.save(rawEvent);
+                }
+
+            } catch (Exception ex) {
+                log.error("Fatal error creating batch jobs for sheet " + sheet.sheetName(), ex);
                 rawEvent.setIngestionStatus(RawEventEntity.IngestionStatus.FAILED);
-                rawEvent.setErrorMessage("The uploaded/downloaded file contained no valid rows data to process.");
+                rawEvent.setErrorMessage("INGESTION_ERROR: " + ex.getMessage());
                 rawEventRepository.save(rawEvent);
             }
+        }
 
-            log.info("Ingestion jobs split successfully: created {} batch jobs.", totalJobsCreated);
-            return rawEvent.getId();
-
-        } catch (DriveConnectionExpiredException driveEx) {
-            log.error("Google Drive connection credentials expired/revoked: {}", driveEx.getMessage());
-            rawEvent.setIngestionStatus(RawEventEntity.IngestionStatus.FAILED);
-            rawEvent.setErrorMessage("DRIVE_CONNECTION_EXPIRED: " + driveEx.getMessage());
-            rawEventRepository.save(rawEvent);
-            return rawEvent.getId();
-        } catch (Exception ex) {
-            log.error("Unhandled error initiating file ingestion: ", ex);
-            rawEvent.setIngestionStatus(RawEventEntity.IngestionStatus.FAILED);
-            rawEvent.setErrorMessage("INGESTION_ERROR: " + ex.getMessage());
-            rawEventRepository.save(rawEvent);
+        if (totalJobsCreated == 0) {
+            RawEventEntity rawEvent = RawEventEntity.builder()
+                    .googleDriveFileId(googleDriveFileId)
+                    .sourceFileName(originalFileName)
+                    .driveOwnerEmail(ownerEmail)
+                    .department(department)
+                    .eventName(manualEventName != null && !manualEventName.trim().isEmpty() ? manualEventName
+                            : originalFileName)
+                    .eventDate(manualEventDate != null ? manualEventDate : LocalDate.now())
+                    .sourceType(RawEventEntity.SourceType.EXCEL)
+                    .ingestionStatus(RawEventEntity.IngestionStatus.FAILED)
+                    .errorMessage("The uploaded/downloaded file contained no valid rows data to process in any sheet.")
+                    .build();
+            rawEvent = rawEventRepository.save(rawEvent);
             return rawEvent.getId();
         }
+
+        log.info("Sheet-partitioned ingestion initiated successfully: created {} batch jobs total.", totalJobsCreated);
+        return returnedRawEventId;
     }
 
     public Map<String, Object> getIngestStatus(UUID rawEventId) {
@@ -217,19 +269,52 @@ public class IngestService {
     public record EventMeta(String name, LocalDate date) {
     }
 
-    protected EventMeta parseEventMetaFromFileName(String fileName) {
-        if (fileName == null || fileName.trim().isEmpty()) {
-            return new EventMeta("Unnamed Event", LocalDate.now());
+    private boolean isGenericSheetName(String sheetName) {
+        if (sheetName == null) {
+            return true;
         }
+        String low = sheetName.trim().toLowerCase();
+        return low.isEmpty() || low.startsWith("sheet") || low.startsWith("trang") || low.equals("raw")
+                || low.startsWith("table");
+    }
 
-        // Strip file extension
-        String nameWithoutExt = fileName;
-        int dotIdx = fileName.lastIndexOf('.');
+    protected EventMeta parseEventMeta(String fileName, String sheetName) {
+        // 1. Try to parse from sheetName first if it's non-generic
+        if (sheetName != null && !isGenericSheetName(sheetName)) {
+            EventMeta meta = parseEventMetaFromText(sheetName);
+            if (meta != null) {
+                return meta;
+            }
+        }
+        // 2. Try to parse from fileName
+        if (fileName != null) {
+            EventMeta meta = parseEventMetaFromText(fileName);
+            if (meta != null) {
+                return meta;
+            }
+        }
+        // Fallback
+        String cleanName = (sheetName != null && !isGenericSheetName(sheetName)) ? sheetName : fileName;
+        if (cleanName == null) {
+            cleanName = "Unnamed Event";
+        }
+        int dotIdx = cleanName.lastIndexOf('.');
         if (dotIdx > 0) {
-            nameWithoutExt = fileName.substring(0, dotIdx);
+            cleanName = cleanName.substring(0, dotIdx);
         }
+        cleanName = cleanName.replaceAll("[-_]+", " ").trim();
+        return new EventMeta(cleanName, LocalDate.now());
+    }
 
-        // Scan for YYYY-MM-DD or DD-MM-YYYY format dates in the text
+    private EventMeta parseEventMetaFromText(String text) {
+        if (text == null || text.trim().isEmpty()) {
+            return null;
+        }
+        String nameWithoutExt = text;
+        int dotIdx = text.lastIndexOf('.');
+        if (dotIdx > 0) {
+            nameWithoutExt = text.substring(0, dotIdx);
+        }
         Pattern pattern = Pattern.compile("(\\d{4})[-_](\\d{2})[-_](\\d{2})|(\\d{2})[-_](\\d{2})[-_](\\d{4})");
         Matcher matcher = pattern.matcher(nameWithoutExt);
 
@@ -238,29 +323,27 @@ public class IngestService {
             if (cleanName.isEmpty()) {
                 cleanName = "Event " + matcher.group(0);
             }
-
             try {
                 if (matcher.group(1) != null) {
-                    // YYYY-MM-DD
                     int year = Integer.parseInt(matcher.group(1));
                     int month = Integer.parseInt(matcher.group(2));
                     int day = Integer.parseInt(matcher.group(3));
                     return new EventMeta(cleanName, LocalDate.of(year, month, day));
                 } else {
-                    // DD-MM-YYYY
                     int day = Integer.parseInt(matcher.group(4));
                     int month = Integer.parseInt(matcher.group(5));
                     int year = Integer.parseInt(matcher.group(6));
                     return new EventMeta(cleanName, LocalDate.of(year, month, day));
                 }
             } catch (Exception e) {
-                log.warn("Failed parser date from filename '{}', falling back to current date", matcher.group(0), e);
+                log.warn("Failed parser date from text '{}'", matcher.group(0), e);
             }
         }
+        return null;
+    }
 
-        // Fallback
-        String cleanName = nameWithoutExt.replaceAll("[-_]+", " ").trim();
-        return new EventMeta(cleanName, LocalDate.now());
+    protected EventMeta parseEventMetaFromFileName(String fileName) {
+        return parseEventMeta(fileName, null);
     }
 
     public List<RawEventEntity> getRecentUploads() {

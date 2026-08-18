@@ -37,6 +37,7 @@ public class ExtractionJobWorker {
     }
 
     @Scheduled(fixedDelayString = "${eventknow.worker.polling-delay:30000}")
+    @org.springframework.transaction.annotation.Transactional
     public void pollAndProcessJobs() {
         List<ExtractionJobEntity> jobs = extractionJobRepository.findTop10ByStatusInOrderByCreatedAtAsc(
                 List.of(ExtractionJobEntity.ExtractionStatus.PENDING, ExtractionJobEntity.ExtractionStatus.RETRYING));

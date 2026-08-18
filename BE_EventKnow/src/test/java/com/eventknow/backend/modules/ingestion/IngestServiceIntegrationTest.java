@@ -33,7 +33,6 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 
 @SpringBootTest
-@Transactional
 public class IngestServiceIntegrationTest {
 
         @Autowired
@@ -72,6 +71,9 @@ public class IngestServiceIntegrationTest {
         @Autowired
         private com.eventknow.backend.modules.dashboard.DashboardController dashboardController;
 
+        @Autowired
+        private SemanticLabelingScheduler semanticLabelingScheduler;
+
         @MockBean
         private GeminiExtractionClient geminiExtractionClient;
 
@@ -79,7 +81,13 @@ public class IngestServiceIntegrationTest {
 
         @BeforeEach
         public void setUp() throws IOException {
-                academicTitleAliasRepository.deleteAll();
+                eventAttendanceRepository.deleteAllInBatch();
+                extractionJobRepository.deleteAllInBatch();
+                rawEventRepository.deleteAllInBatch();
+                attendeeProfileRepository.deleteAllInBatch();
+                organizationRepository.deleteAllInBatch();
+                eventRepository.deleteAllInBatch();
+                academicTitleAliasRepository.deleteAllInBatch();
                 academicTitleAliasRepository.flush();
                 // Seeds some academic titles aliases
                 academicTitleAliasRepository.save(AcademicTitleAliasEntity.builder()
@@ -133,9 +141,9 @@ public class IngestServiceIntegrationTest {
                 // extraction schema specifications
 
                 GeminiExtractionClient.LabeledRowResult lr1 = new GeminiExtractionClient.LabeledRowResult(
-                                2, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
+                                0, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
                 GeminiExtractionClient.LabeledRowResult lr2 = new GeminiExtractionClient.LabeledRowResult(
-                                3, List.of("GREENTECH"), List.of("Organic"), "GUEST");
+                                1, List.of("GREENTECH"), List.of("Organic"), "GUEST");
 
                 GeminiExtractionClient.GeminiLabelingResponse mockGeminiResp = new GeminiExtractionClient.GeminiLabelingResponse(
                                 List.of(lr1, lr2));
@@ -167,6 +175,7 @@ public class IngestServiceIntegrationTest {
 
                 // 4. Run Scheduled background worker manually
                 jobWorker.pollAndProcessJobs();
+                semanticLabelingScheduler.labelPendingAttendees();
 
                 // 5. Verify Ingestion status transitions to DONE
                 RawEventEntity completedRaw = rawEventRepository.findById(rawEventId).orElseThrow();
@@ -194,7 +203,9 @@ public class IngestServiceIntegrationTest {
                 assertTrue(aNguyen.getAcademicTitleNormalized().contains("GS"));
                 assertTrue(aNguyen.getAcademicTitleNormalized().contains("TS"));
                 assertEquals(AttendeeProfileEntity.AttendeeRole.SPEAKER, aNguyen.getAttendeeRole());
-                assertEquals("HUST", aNguyen.getOrganization().getOrgName());
+                OrganizationEntity aNguyenOrg = organizationRepository.findById(aNguyen.getOrganization().getId())
+                                .orElseThrow();
+                assertEquals("HUST", aNguyenOrg.getOrgName());
 
                 AttendeeProfileEntity bTran = savedAttendees.stream().filter(a -> "Trần Thị B".equals(a.getFullName()))
                                 .findFirst().orElseThrow();
@@ -208,11 +219,11 @@ public class IngestServiceIntegrationTest {
                 System.out.println("DEBUG ATTENDANCES SIZE: " + attendances.size());
                 for (EventAttendanceEntity att : attendances) {
                         System.out.println("DEBUG ATTENDANCE: ID=" + att.getId() +
-                                        ", Attendee="
-                                        + (att.getAttendeeProfile() != null ? att.getAttendeeProfile().getFullName()
+                                        ", AttendeeID="
+                                        + (att.getAttendeeProfile() != null ? att.getAttendeeProfile().getId()
                                                         : "null")
                                         +
-                                        ", Org=" + (att.getOrganization() != null ? att.getOrganization().getOrgName()
+                                        ", OrgID=" + (att.getOrganization() != null ? att.getOrganization().getId()
                                                         : "null"));
                 }
                 assertTrue(attendances.size() >= 4);
@@ -510,6 +521,95 @@ public class IngestServiceIntegrationTest {
                         // Verify names found
                         assertTrue(result.standardMapping().containsKey("fullName"));
                 }
+        }
+
+        @Test
+        public void testMultiSheetIngestion() throws IOException {
+                byte[] multiSheetExcelBytes;
+                try (Workbook workbook = new XSSFWorkbook()) {
+                        Sheet sheet1 = workbook.createSheet("Hoi thao Blockchain 2026-11-20");
+                        Row header1 = sheet1.createRow(0);
+                        header1.createCell(0).setCellValue("STT");
+                        header1.createCell(1).setCellValue("Họ tên");
+                        header1.createCell(2).setCellValue("Đơn vị công tác");
+                        header1.createCell(3).setCellValue("Email");
+                        Row r1 = sheet1.createRow(1);
+                        r1.createCell(0).setCellValue(1);
+                        r1.createCell(1).setCellValue("Chuỗi Khối A");
+                        r1.createCell(2).setCellValue("Crypto Corp");
+                        r1.createCell(3).setCellValue("blockchain.a@crypto.com");
+
+                        Sheet sheet2 = workbook.createSheet("Dao tao AI 2026-11-25");
+                        Row header2 = sheet2.createRow(0);
+                        header2.createCell(0).setCellValue("STT");
+                        header2.createCell(1).setCellValue("Họ tên");
+                        header2.createCell(2).setCellValue("Đơn vị công tác");
+                        header2.createCell(3).setCellValue("Email");
+                        Row r2 = sheet2.createRow(1);
+                        r2.createCell(0).setCellValue(1);
+                        r2.createCell(1).setCellValue("Trí Tuệ B");
+                        r2.createCell(2).setCellValue("AI Labs");
+                        r2.createCell(3).setCellValue("ai.b@ailabs.org");
+
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        workbook.write(bos);
+                        multiSheetExcelBytes = bos.toByteArray();
+                }
+
+                // Setup Mock Gemini responses
+                GeminiExtractionClient.LabeledRowResult lr1 = new GeminiExtractionClient.LabeledRowResult(
+                                2, List.of("BLOCKCHAIN"), List.of("Crypto"), "GUEST");
+                GeminiExtractionClient.LabeledRowResult lr2 = new GeminiExtractionClient.LabeledRowResult(
+                                2, List.of("AI_ML"), List.of("DeepLearning"), "SPEAKER");
+                GeminiExtractionClient.GeminiLabelingResponse mockGeminiResp = new GeminiExtractionClient.GeminiLabelingResponse(
+                                List.of(lr1, lr2));
+                Mockito.when(geminiExtractionClient.labelBatch(any(), anyString(), anyString(), anyInt(), anyInt()))
+                                .thenReturn(mockGeminiResp);
+
+                orgRepositoryCheckReset();
+
+                UUID rawEventId = ingestService.initiateIngestion(
+                                multiSheetExcelBytes,
+                                "Raw data .xlsx",
+                                null,
+                                null,
+                                null,
+                                null,
+                                "admin@eventknow.com",
+                                null);
+
+                assertNotNull(rawEventId);
+
+                jobWorker.pollAndProcessJobs();
+
+                List<RawEventEntity> raws = rawEventRepository.findAll();
+                assertTrue(raws.size() >= 2);
+
+                RawEventEntity raw1 = raws.stream()
+                                .filter(r -> "Hoi thao Blockchain 2026-11-20".equals(r.getSheetName())).findFirst()
+                                .orElse(null);
+                RawEventEntity raw2 = raws.stream().filter(r -> "Dao tao AI 2026-11-25".equals(r.getSheetName()))
+                                .findFirst().orElse(null);
+
+                assertNotNull(raw1);
+                assertNotNull(raw2);
+
+                assertEquals("Hoi thao Blockchain", raw1.getEventName());
+                assertEquals(LocalDate.of(2026, 11, 20), raw1.getEventDate());
+
+                assertEquals("Dao tao AI", raw2.getEventName());
+                assertEquals(LocalDate.of(2026, 11, 25), raw2.getEventDate());
+
+                assertNotNull(raw1.getEvent());
+                assertNotNull(raw2.getEvent());
+                assertNotEquals(raw1.getEvent().getId(), raw2.getEvent().getId());
+
+                com.eventknow.backend.model.entity.Core.EventEntity event1 = eventRepository
+                                .findById(raw1.getEvent().getId()).orElseThrow();
+                com.eventknow.backend.model.entity.Core.EventEntity event2 = eventRepository
+                                .findById(raw2.getEvent().getId()).orElseThrow();
+                assertEquals("Hoi thao Blockchain", event1.getEventName());
+                assertEquals("Dao tao AI", event2.getEventName());
         }
 
         private void orgRepositoryCheckReset() {

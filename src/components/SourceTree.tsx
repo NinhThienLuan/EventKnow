@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Home,
   LayoutDashboard,
@@ -22,7 +22,6 @@ import {
   Layers,
   Compass
 } from 'lucide-react';
-import { RECENT_REPORTS_LIST } from '../data/mockData';
 import { translations } from '../data/translations';
 import { UserProfile } from './GoogleAuthModal';
 
@@ -38,54 +37,9 @@ interface SourceTreeProps {
   onOpenAuthModal?: () => void;
 }
 
-interface TreeNode {
-  id: string;
-  label: string;
-  type: 'folder' | 'database' | 'log';
-  count?: number;
-  children?: TreeNode[];
-}
-
-const TREE_DATA: TreeNode[] = [
-  {
-    id: 'db-core',
-    label: 'Event DB Core',
-    type: 'database',
-    count: 1420,
-    children: [
-      { id: 'src-q3-2024', label: 'Sự kiện Q3 2024', type: 'folder', count: 480 },
-      { id: 'src-ai-expert', label: 'Hội thảo Chuyên gia AI', type: 'folder', count: 320 },
-      { id: 'src-econ-forum', label: 'Diễn đàn Kinh tế & Bán dẫn', type: 'folder', count: 620 }
-    ]
-  },
-  {
-    id: 'db-vast',
-    label: 'Viện Hàn Lâm & Nghiên cứu',
-    type: 'database',
-    count: 850,
-    children: [
-      { id: 'src-it-inst', label: 'Viện Công nghệ Thông tin (VAST)', type: 'folder', count: 210 },
-      { id: 'src-math-inst', label: 'Viện Toán học & Viện Mẫu', type: 'folder', count: 180 }
-    ]
-  },
-  {
-    id: 'db-partners',
-    label: 'Báo cáo Đối tác & Tài trợ',
-    type: 'database',
-    count: 310
-  },
-  {
-    id: 'db-logs',
-    label: 'Nhật ký Trích xuất Automated Logs',
-    type: 'log',
-    count: 95
-  }
-];
-
 export const SourceTree: React.FC<SourceTreeProps> = ({
   selectedSourceId,
   onSelectSource,
-  onSelectReport,
   language,
   activeNavView = 'dashboard',
   onSelectNavView,
@@ -96,13 +50,49 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
   const t = translations[language];
   const [activeTab, setActiveTab] = useState<'NAV' | 'DATA'>('NAV');
 
-  const [expandedFolders, setExpandedFolders] = useState<Record<string, boolean>>({
-    'db-core': true,
-    'db-vast': true
-  });
+  // Dynamic Tree States
+  const [treeData, setTreeData] = useState<any[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const toggleFolder = (id: string) => {
-    setExpandedFolders(prev => ({ ...prev, [id]: !prev[id] }));
+  // Expand / collapse states
+  const [expandedDepts, setExpandedDepts] = useState<Record<string, boolean>>({});
+  const [expandedYears, setExpandedYears] = useState<Record<string, boolean>>({});
+  const [expandedQuarters, setExpandedQuarters] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    if (activeTab === 'DATA') {
+      setLoading(true);
+      setError(null);
+      fetch('/api/source-tree', { credentials: 'include' })
+        .then(res => res.json())
+        .then(json => {
+          if (json.status === 'success') {
+            setTreeData(json.data.departments || []);
+          } else {
+            setError(json.error || 'Failed to fetch tree data');
+          }
+        })
+        .catch(err => {
+          console.error(err);
+          setError('Failed to fetch tree data');
+        })
+        .finally(() => {
+          setLoading(false);
+        });
+    }
+  }, [activeTab]);
+
+  const toggleDept = (dept: string) => {
+    setExpandedDepts(prev => ({ ...prev, [dept]: !prev[dept] }));
+  };
+
+  const toggleYear = (key: string) => {
+    setExpandedYears(prev => ({ ...prev, [key]: !prev[key] }));
+  };
+
+  const toggleQuarter = (key: string) => {
+    setExpandedQuarters(prev => ({ ...prev, [key]: !prev[key] }));
   };
 
   const navItems = [
@@ -219,119 +209,140 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
           </div>
         )}
 
-        {/* TAB 2: DATA (BAO GỒM BÁO CÁO VÀ CÂY NGUỒN DỮ LIỆU) */}
+        {/* TAB 2: DATA (CÂY NGUỒN DỮ LIỆU ĐỘNG) */}
         {activeTab === 'DATA' && (
-          <div className="space-y-5">
-            {/* 1. Reports Section inside Data Tab (placed ON TOP as requested) */}
-            <div className="space-y-2">
-              <div className="px-2 flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-widest text-[#00344c] font-mono font-semibold flex items-center gap-1">
-                  <FileText className="w-3.5 h-3.5 text-[#00344c]" />
-                  {t.reportsListHeader}
-                </span>
-                <span className="text-[10px] font-mono text-[#72787e] bg-white px-1.5 py-0.5 rounded border border-[#DCE1E6]">
-                  {RECENT_REPORTS_LIST.length}
-                </span>
-              </div>
-
-              <div className="space-y-1">
-                {RECENT_REPORTS_LIST.map(report => (
-                  <div
-                    key={report.id}
-                    onClick={() => onSelectReport && onSelectReport(report.id)}
-                    className="p-2 bg-white border border-[#DCE1E6] rounded hover:border-[#1b4b66] hover:bg-[#edf4ff]/30 transition-all cursor-pointer flex items-center gap-2 group shadow-2xs"
-                  >
-                    <FileText className="w-3.5 h-3.5 text-[#1b4b66] shrink-0" />
-                    <div className="overflow-hidden flex-1">
-                      <p className="text-[11px] font-semibold text-[#0f1d28] truncate group-hover:text-[#00344c]">
-                        {report.title}
-                      </p>
-                      <p className="text-[10px] font-mono text-[#72787e]">{report.editedTime}</p>
-                    </div>
-                  </div>
-                ))}
-              </div>
+          <div className="space-y-4 animate-fade-in">
+            <div className="px-2 flex items-center justify-between">
+              <span className="text-[10px] uppercase tracking-widest text-[#1b4b66] font-mono font-semibold flex items-center gap-1">
+                <HardDrive className="w-3.5 h-3.5" />
+                {t.sourceTreeHeader}
+              </span>
+              <span className="text-[10px] font-mono text-[#72787e] bg-white px-1.5 py-0.5 rounded border border-[#DCE1E6]">
+                {treeData.length} Depts
+              </span>
             </div>
 
-            {/* 2. Source Tree Section (placed BELOW Reports) */}
-            <div className="pt-2 border-t border-[#DCE1E6] space-y-2">
-              <div className="px-2 flex items-center justify-between">
-                <span className="text-[10px] uppercase tracking-widest text-[#1b4b66] font-mono font-semibold flex items-center gap-1">
-                  <HardDrive className="w-3.5 h-3.5" />
-                  {t.sourceTreeHeader}
-                </span>
-                <span className="text-[10px] font-mono text-[#72787e] bg-white px-1.5 py-0.5 rounded border border-[#DCE1E6]">
-                  4 DBs
-                </span>
-              </div>
+            {loading && (
+              <p className="text-xs text-[#72787e] px-2 italic">Đang tải...</p>
+            )}
 
-              <div className="space-y-0.5 text-xs">
-                {TREE_DATA.map(node => {
-                  const isExpanded = expandedFolders[node.id];
-                  const isSelected = selectedSourceId === node.id;
+            {error && (
+              <p className="text-xs text-red-500 px-2 italic">{error}</p>
+            )}
 
+            {!loading && !error && treeData.length === 0 && (
+              <p className="text-xs text-[#72787e] px-2 italic">Không có dữ liệu</p>
+            )}
+
+            {!loading && !error && (
+              <div className="space-y-1 text-xs">
+                {treeData.map(deptItem => {
+                  const isDeptExpanded = !!expandedDepts[deptItem.department];
                   return (
-                    <div key={node.id} className="w-full">
-                      {/* Database Root Node */}
+                    <div key={deptItem.department} className="w-full">
+                      {/* Department Root Node */}
                       <div
-                        onClick={() => {
-                          if (node.children) toggleFolder(node.id);
-                          onSelectSource(node.id);
-                        }}
-                        className={`flex items-center justify-between px-2.5 py-1.5 rounded cursor-pointer transition-colors ${isSelected
-                          ? 'bg-white text-[#1b4b66] font-semibold border-l-3 border-[#1b4b66] shadow-2xs'
-                          : 'text-[#41474d] hover:bg-white/50'
-                          }`}
+                        onClick={() => toggleDept(deptItem.department)}
+                        className="flex items-center justify-between px-2.5 py-1.5 rounded cursor-pointer transition-colors text-[#41474d] hover:bg-white/50"
                       >
                         <div className="flex items-center gap-2 overflow-hidden">
-                          {node.children ? (
-                            <span className="text-[#72787e]">
-                              {isExpanded ? (
-                                <ChevronDown className="w-3.5 h-3.5" />
-                              ) : (
-                                <ChevronRight className="w-3.5 h-3.5" />
-                              )}
-                            </span>
-                          ) : (
-                            <span className="w-3.5 h-3.5"></span>
-                          )}
-                          {node.type === 'database' && (
-                            <Database className="w-3.5 h-3.5 text-[#1b4b66] shrink-0" />
-                          )}
-                          {node.type === 'log' && (
-                            <Activity className="w-3.5 h-3.5 text-[#5B4B8A] shrink-0" />
-                          )}
-                          <span className="truncate font-medium">{node.label}</span>
+                          <span className="text-[#72787e]">
+                            {isDeptExpanded ? (
+                              <ChevronDown className="w-3.5 h-3.5" />
+                            ) : (
+                              <ChevronRight className="w-3.5 h-3.5" />
+                            )}
+                          </span>
+                          <Database className="w-3.5 h-3.5 text-[#1b4b66] shrink-0" />
+                          <span className="truncate font-semibold text-[#0f1d28]">{deptItem.department}</span>
                         </div>
-                        {node.count && (
+                        {deptItem.eventCount > 0 && (
                           <span className="font-mono text-[10px] bg-white text-[#41474d] border border-[#DCE1E6] px-1.5 py-0.2 rounded shrink-0">
-                            {node.count}
+                            {deptItem.eventCount}
                           </span>
                         )}
                       </div>
 
-                      {/* Children Sub-folders */}
-                      {isExpanded && node.children && (
-                        <div className="pl-4 space-y-0.5 border-l border-[#DCE1E6] ml-3 my-0.5">
-                          {node.children.map(child => {
-                            const childSelected = selectedSourceId === child.id;
+                      {/* Year Nodes */}
+                      {isDeptExpanded && deptItem.years && (
+                        <div className="pl-3.5 ml-3 border-l border-[#DCE1E6] space-y-0.5">
+                          {deptItem.years.map((yearItem: any) => {
+                            const yearKey = `${deptItem.department}-${yearItem.year}`;
+                            const isYearExpanded = !!expandedYears[yearKey];
                             return (
-                              <div
-                                key={child.id}
-                                onClick={() => onSelectSource(child.id)}
-                                className={`flex items-center justify-between pr-2 py-1 pl-2 rounded cursor-pointer transition-colors ${childSelected
-                                  ? 'bg-white text-[#1b4b66] font-semibold border-l-2 border-[#1b4b66]'
-                                  : 'text-[#41474d] hover:bg-white/50'
-                                  }`}
-                              >
-                                <div className="flex items-center gap-2 overflow-hidden">
-                                  <Folder className="w-3.5 h-3.5 text-[#72787e] shrink-0" />
-                                  <span className="truncate text-[11px]">{child.label}</span>
+                              <div key={yearItem.year} className="w-full">
+                                <div
+                                  onClick={() => toggleYear(yearKey)}
+                                  className="flex items-center justify-between py-1 px-2 rounded cursor-pointer text-[#41474d] hover:bg-white/40"
+                                >
+                                  <div className="flex items-center gap-1.5 overflow-hidden">
+                                    <span className="text-[#72787e]">
+                                      {isYearExpanded ? (
+                                        <ChevronDown className="w-3 h-3" />
+                                      ) : (
+                                        <ChevronRight className="w-3 h-3" />
+                                      )}
+                                    </span>
+                                    <Folder className="w-3.5 h-3.5 text-amber-600 shrink-0" />
+                                    <span className="truncate text-[11px] font-medium">Năm {yearItem.year}</span>
+                                  </div>
+                                  <span className="text-[10px] text-[#72787e] font-mono">{yearItem.eventCount}</span>
                                 </div>
-                                {child.count && (
-                                  <span className="font-mono text-[10px] text-[#72787e]">
-                                    {child.count}
-                                  </span>
+
+                                {/* Quarter Nodes */}
+                                {isYearExpanded && yearItem.quarters && (
+                                  <div className="pl-3 ml-2 border-l border-[#E2E7EC] space-y-0.5">
+                                    {yearItem.quarters.map((qtrItem: any) => {
+                                      const qtrKey = `${yearKey}-${qtrItem.quarter}`;
+                                      const isQtrExpanded = !!expandedQuarters[qtrKey];
+                                      return (
+                                        <div key={qtrItem.quarter} className="w-full">
+                                          <div
+                                            onClick={() => toggleQuarter(qtrKey)}
+                                            className="flex items-center justify-between py-0.5 px-2 rounded cursor-pointer text-[#41474d] hover:bg-white/30"
+                                          >
+                                            <div className="flex items-center gap-1 overflow-hidden">
+                                              <span className="text-[#8e9499]">
+                                                {isQtrExpanded ? (
+                                                  <ChevronDown className="w-3 h-3" />
+                                                ) : (
+                                                  <ChevronRight className="w-3 h-3" />
+                                                )}
+                                              </span>
+                                              <span className="text-[10px] uppercase font-bold text-[#5B4B8A] tracking-wider shrink-0">
+                                                {qtrItem.quarter}
+                                              </span>
+                                            </div>
+                                            <span className="text-[9px] text-[#72787e] font-mono">{qtrItem.eventCount}</span>
+                                          </div>
+
+                                          {/* Event Leaf Nodes */}
+                                          {isQtrExpanded && qtrItem.events && (
+                                            <div className="pl-3 ml-2 border-l border-[#EEF1F4] space-y-0.5">
+                                              {qtrItem.events.map((evt: any) => {
+                                                const isSelected = selectedSourceId === evt.eventId;
+                                                return (
+                                                  <div
+                                                    key={evt.eventId}
+                                                    onClick={() => onSelectSource(evt.eventId)}
+                                                    className={`flex items-center gap-1.5 py-1 px-2 rounded cursor-pointer transition-colors ${isSelected
+                                                        ? 'bg-white text-[#1b4b66] font-semibold border-l-2 border-[#1b4b66]'
+                                                        : 'text-[#555a60] hover:bg-white/50'
+                                                      }`}
+                                                  >
+                                                    <FileText className="w-3 h-3 text-[#72787e] shrink-0" />
+                                                    <span className="truncate text-[10px] text-[#2c3e50]" title={evt.eventName}>
+                                                      {evt.eventName}
+                                                    </span>
+                                                  </div>
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
                                 )}
                               </div>
                             );
@@ -342,7 +353,7 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
                   );
                 })}
               </div>
-            </div>
+            )}
           </div>
         )}
       </div>
@@ -397,4 +408,3 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
     </aside>
   );
 };
-
