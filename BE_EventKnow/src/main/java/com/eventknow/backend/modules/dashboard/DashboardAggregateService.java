@@ -66,14 +66,14 @@ public class DashboardAggregateService {
                             .build())
                     .monthlyTrend(List.of())
                     .departmentDistribution(List.of())
-                    .dataHealth(getDataHealth())
+                    .dataHealth(getDataHealth(visibleRawEventIds))
                     .build();
         }
 
         SummaryDto summary = buildSummary(filters, visibleRawEventIds);
         List<MonthlyTrendDto> trend = getMonthlyTrend(filters, visibleRawEventIds);
         List<DepartmentDto> deptDist = getDepartmentDistribution(filters, visibleRawEventIds);
-        DataHealthDto health = getDataHealth();
+        DataHealthDto health = getDataHealth(visibleRawEventIds);
 
         return DashboardAggregateResponse.builder()
                 .summary(summary)
@@ -180,7 +180,7 @@ public class DashboardAggregateService {
 
     /**
      * Total distinct attendees, resolving merged identities before counting.
-     * Uses resolve_entity_id('PERSON', ...) — mandatory per Module 3 merge
+     * Uses resolve_entity_id('ATTENDEE', ...) — mandatory per Module 3 merge
      * contract.
      */
     private long queryTotalAttendees(DashboardFilterParams f, List<UUID> visibleIds) {
@@ -370,6 +370,7 @@ public class DashboardAggregateService {
                     JOIN raw_events re ON ea.raw_event_id = re.id
                     JOIN events e ON re.event_id = e.id
                     WHERE ap.is_active = true
+                      AND ap.ai_labeled = true
                       AND re.ingestion_status = 'DONE'
                       AND ea.is_deleted_in_source = false
                     """
@@ -486,19 +487,42 @@ public class DashboardAggregateService {
      * the overall health of the ingestion and data pipeline, not a per-period view.
      * </p>
      */
-    private DataHealthDto getDataHealth() {
-        String sql = """
-                SELECT
-                  (SELECT COUNT(*) FROM event_attendance WHERE is_deleted_in_source = true)   AS deleted_in_source_count,
-                  (SELECT COUNT(*) FROM raw_events WHERE department = 'UNMAPPED')             AS unmapped_department_count,
-                  (SELECT COUNT(*) FROM extraction_jobs WHERE status = 'FAILED')              AS failed_extraction_job_count
-                """;
+    private DataHealthDto getDataHealth(List<UUID> visibleRawEventIds) {
+        if (isEmptyAccess(visibleRawEventIds)) {
+            return DataHealthDto.builder()
+                    .deletedInSourceCount(0L)
+                    .unmappedDepartmentCount(0L)
+                    .failedExtractionJobCount(0L)
+                    .pendingAiLabelingCount(0L)
+                    .build();
+        }
 
-        return jdbc.queryForObject(sql, new MapSqlParameterSource(), (rs, i) -> DataHealthDto.builder()
-                .deletedInSourceCount(rs.getLong("deleted_in_source_count"))
-                .unmappedDepartmentCount(rs.getLong("unmapped_department_count"))
-                .failedExtractionJobCount(rs.getLong("failed_extraction_job_count"))
-                .build());
+        String deletedSql = "SELECT COUNT(*) FROM event_attendance WHERE is_deleted_in_source = true"
+                + (visibleRawEventIds != null ? " AND raw_event_id = ANY(:visibleRawEventIds)" : "");
+        String unmappedSql = "SELECT COUNT(*) FROM raw_events WHERE department = 'UNMAPPED'"
+                + (visibleRawEventIds != null ? " AND id = ANY(:visibleRawEventIds)" : "");
+        String failedSql = "SELECT COUNT(*) FROM extraction_jobs WHERE status = 'FAILED'"
+                + (visibleRawEventIds != null ? " AND raw_event_id = ANY(:visibleRawEventIds)" : "");
+        String pendingAiSql = "SELECT COUNT(DISTINCT resolve_entity_id('PERSON', ap.id))"
+                + " FROM attendee_profiles ap"
+                + " JOIN event_attendance ea ON ea.attendee_profile_id = ap.id"
+                + " WHERE ap.is_active = true AND ap.ai_labeled = false AND ea.is_deleted_in_source = false"
+                + (visibleRawEventIds != null ? " AND ea.raw_event_id = ANY(:visibleRawEventIds)" : "");
+
+        MapSqlParameterSource p = new MapSqlParameterSource();
+        applyRlsParam(p, visibleRawEventIds);
+
+        long deleted = queryLong(deletedSql, p);
+        long unmapped = queryLong(unmappedSql, p);
+        long failed = queryLong(failedSql, p);
+        long pendingAi = queryLong(pendingAiSql, p);
+
+        return DataHealthDto.builder()
+                .deletedInSourceCount(deleted)
+                .unmappedDepartmentCount(unmapped)
+                .failedExtractionJobCount(failed)
+                .pendingAiLabelingCount(pendingAi)
+                .build();
     }
 
     // ─────────────────────────────────────────────────────────────────────────

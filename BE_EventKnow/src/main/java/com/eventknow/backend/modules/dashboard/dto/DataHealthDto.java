@@ -13,4 +13,5 @@ public class DataHealthDto {
     private long deletedInSourceCount;
     private long unmappedDepartmentCount;
     private long failedExtractionJobCount;
+    private long pendingAiLabelingCount;
 }

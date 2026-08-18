@@ -53,6 +53,9 @@ public class ExtractionJobEntity {
     @Column(name = "completed_at")
     private LocalDateTime completedAt;
 
+    @Column(name = "last_retried_at")
+    private LocalDateTime lastRetriedAt;
+
     @Column(name = "raw_header_cols", columnDefinition = "text")
     private String rawHeaderCols;
 

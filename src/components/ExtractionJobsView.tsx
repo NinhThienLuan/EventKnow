@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   RefreshCw,
   Search,
@@ -27,7 +27,7 @@ interface JobItem {
   id: string;
   fileName: string;
   department: string;
-  status: 'COMPLETED' | 'PROCESSING' | 'FAILED' | 'PENDING';
+  status: 'DONE' | 'PROCESSING' | 'FAILED' | 'PENDING';
   progress: number;
   updatedAt: string;
 }
@@ -41,112 +41,142 @@ export const ExtractionJobsView: React.FC<ExtractionJobsViewProps> = ({ language
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
 
-  const [jobs, setJobs] = useState<JobItem[]>([
-    {
-      id: 'JOB-8821',
-      fileName: 'Bieu_mau_Bao_cao_Tai_chinh_Q3_2023.pdf',
-      department: 'Phòng Tài chính',
-      status: 'FAILED',
-      progress: 45,
-      updatedAt: '10:42 AM'
-    },
-    {
-      id: 'JOB-8820',
-      fileName: 'Quyet_dinh_nhan_su_HDQT_112.docx',
-      department: 'Ban Giám đốc',
-      status: 'PROCESSING',
-      progress: 72,
-      updatedAt: '10:40 AM'
-    },
-    {
-      id: 'JOB-8819',
-      fileName: 'Danh_sach_khach_hang_VIP_2024.xlsx',
-      department: 'Phòng Kinh doanh',
-      status: 'COMPLETED',
-      progress: 100,
-      updatedAt: '10:35 AM'
-    },
-    {
-      id: 'JOB-8818',
-      fileName: 'Hop_dong_cung_cap_dich_vu_IT.pdf',
-      department: 'Phòng Pháp chế',
-      status: 'PENDING',
-      progress: 0,
-      updatedAt: '10:30 AM'
-    },
-    {
-      id: 'JOB-8817',
-      fileName: 'Nghiencuu_thi_truong_DongNamA_2024.pptx',
-      department: 'Phòng Marketing',
-      status: 'COMPLETED',
-      progress: 100,
-      updatedAt: '09:50 AM'
-    },
-    {
-      id: 'JOB-8816',
-      fileName: 'Danh_sach_nhan_su_R_and_D_v3.xlsx',
-      department: 'Phòng R&D',
-      status: 'COMPLETED',
-      progress: 100,
-      updatedAt: '09:12 AM'
-    },
-    {
-      id: 'JOB-8815',
-      fileName: 'Khao_sat_y_kien_nhan_vien_Q2.csv',
-      department: 'Phòng HR',
-      status: 'FAILED',
-      progress: 18,
-      updatedAt: 'Yesterday'
-    }
-  ]);
+  const [jobs, setJobs] = useState<JobItem[]>([]);
+  const [totalPages, setTotalPages] = useState(1);
+  const [totalElements, setTotalElements] = useState(0);
+  const [summaryStats, setSummaryStats] = useState({
+    total: 0,
+    done: 0,
+    processing: 0,
+    failed: 0
+  });
 
-  const handleRefresh = () => {
-    setIsRefreshing(true);
-    setTimeout(() => {
-      setIsRefreshing(false);
-    }, 1000);
+  const fetchJobs = async (showRefreshIndicator = true) => {
+    try {
+      if (showRefreshIndicator) {
+        setIsRefreshing(true);
+      }
+      const params = new URLSearchParams({
+        page: (currentPage - 1).toString(),
+        size: '10',
+        search: searchTerm,
+        status: selectedStatus,
+        department: selectedDept
+      });
+      const res = await fetch(`/api/extraction-jobs?${params.toString()}`);
+      if (!res.ok) throw new Error('Failed to fetch extraction jobs');
+      const data = await res.json();
+      setJobs(data.content || []);
+      setTotalPages(data.totalPages || 1);
+      setTotalElements(data.totalElements || 0);
+    } catch (err) {
+      console.error('Failed to fetch jobs', err);
+    } finally {
+      if (showRefreshIndicator) {
+        setIsRefreshing(false);
+      }
+    }
   };
 
-  const handleRetryJob = (id: string) => {
-    setJobs(prev =>
-      prev.map(j => (j.id === id ? { ...j, status: 'PROCESSING', progress: 10 } : j))
-    );
-
-    // Simulate progress
-    setTimeout(() => {
-      setJobs(prev =>
-        prev.map(j => (j.id === id ? { ...j, status: 'COMPLETED', progress: 100 } : j))
+  const fetchSummaryStats = async () => {
+    try {
+      const statuses = ['ALL', 'DONE', 'PROCESSING', 'FAILED'];
+      const promises = statuses.map(s =>
+        fetch(`/api/extraction-jobs?status=${s}&page=0&size=0`).then(r => {
+          if (!r.ok) throw new Error('Fetch error');
+          return r.json();
+        })
       );
-    }, 2500);
+      const [allData, doneData, procData, failData] = await Promise.all(promises);
+      setSummaryStats({
+        total: allData.totalElements || 0,
+        done: doneData.totalElements || 0,
+        processing: procData.totalElements || 0,
+        failed: failData.totalElements || 0
+      });
+    } catch (e) {
+      console.error('Failed to fetch summary stats', e);
+    }
+  };
+
+  const handleRefresh = async () => {
+    setIsRefreshing(true);
+    await Promise.all([fetchJobs(false), fetchSummaryStats()]);
+    setIsRefreshing(false);
+  };
+
+  const handleRetryJob = async (id: string) => {
+    try {
+      const res = await fetch(`/api/extraction-jobs/raw-events/${id}/retry`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        await Promise.all([fetchJobs(), fetchSummaryStats()]);
+      } else {
+        alert(language === 'VN' ? 'Không thể yêu cầu thử lại tiến trình này.' : 'Failed to request retry for this job.');
+      }
+    } catch (err) {
+      console.error('Retry error', err);
+    }
   };
 
   const handleTogglePause = (id: string) => {
-    setJobs(prev =>
-      prev.map(j => {
-        if (j.id === id) {
-          if (j.status === 'PROCESSING') return { ...j, status: 'PENDING' };
-          if (j.status === 'PENDING') return { ...j, status: 'PROCESSING', progress: Math.max(j.progress, 20) };
-        }
-        return j;
-      })
-    );
+    // Pause mapping not backed by DB, no-op
   };
 
-  const filteredJobs = jobs.filter(job => {
-    const matchesSearch =
-      job.fileName.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      job.id.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus =
-      selectedStatus === 'ALL' || job.status === selectedStatus;
-    const matchesDept =
-      selectedDept === 'ALL' || job.department.includes(selectedDept);
-    return matchesSearch && matchesStatus && matchesDept;
-  });
+  useEffect(() => {
+    fetchJobs();
+    fetchSummaryStats();
+  }, [currentPage, searchTerm, selectedStatus, selectedDept]);
 
-  const totalJobs = 1248;
-  const completedJobs = 1102;
-  const processingJobs = 143;
-  const failedJobs = 3;
+  // Bounded Polling
+  useEffect(() => {
+    const hasProcessing = jobs.some(j => j.status === 'PROCESSING');
+    if (!hasProcessing) return;
+
+    let pollCount = 0;
+    const maxPolls = 30; // maximum 30 iterations (90 seconds total)
+    const intervalId = setInterval(async () => {
+      pollCount++;
+      if (pollCount >= maxPolls) {
+        clearInterval(intervalId);
+        return;
+      }
+
+      try {
+        const params = new URLSearchParams({
+          page: (currentPage - 1).toString(),
+          size: '10',
+          search: searchTerm,
+          status: selectedStatus,
+          department: selectedDept
+        });
+        const res = await fetch(`/api/extraction-jobs?${params.toString()}`);
+        if (res.ok) {
+          const data = await res.json();
+          setJobs(data.content || []);
+          setTotalPages(data.totalPages || 1);
+          setTotalElements(data.totalElements || 0);
+
+          const stillProcessing = (data.content || []).some((j: any) => j.status === 'PROCESSING');
+          if (!stillProcessing) {
+            clearInterval(intervalId);
+            fetchSummaryStats();
+          }
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [jobs, currentPage, searchTerm, selectedStatus, selectedDept]);
+
+  const filteredJobs = jobs; // Filtered at API level now
+  const totalJobs = summaryStats.total;
+  const completedJobs = summaryStats.done;
+  const processingJobs = summaryStats.processing;
+  const failedJobs = summaryStats.failed;
 
   return (
     <div className="w-full max-w-7xl mx-auto p-4 lg:p-6 space-y-6 antialiased font-body animate-fade-in">
@@ -259,7 +289,7 @@ export const ExtractionJobsView: React.FC<ExtractionJobsViewProps> = ({ language
               className="bg-transparent font-semibold text-[#00344c] focus:outline-none cursor-pointer"
             >
               <option value="ALL">{language === 'VN' ? 'Tất cả' : 'All'}</option>
-              <option value="COMPLETED">{language === 'VN' ? 'Hoàn thành' : 'Completed'}</option>
+              <option value="DONE">{language === 'VN' ? 'Hoàn thành' : 'Completed'}</option>
               <option value="PROCESSING">{language === 'VN' ? 'Đang xử lý' : 'Processing'}</option>
               <option value="FAILED">{language === 'VN' ? 'Lỗi' : 'Failed'}</option>
               <option value="PENDING">{language === 'VN' ? 'Chờ xử lý' : 'Pending'}</option>
@@ -275,11 +305,15 @@ export const ExtractionJobsView: React.FC<ExtractionJobsViewProps> = ({ language
               className="bg-transparent font-semibold text-[#00344c] focus:outline-none cursor-pointer"
             >
               <option value="ALL">{language === 'VN' ? 'Tất cả phòng ban' : 'All Departments'}</option>
-              <option value="Tài chính">{language === 'VN' ? 'Phòng Tài chính' : 'Finance'}</option>
-              <option value="Giám đốc">{language === 'VN' ? 'Ban Giám đốc' : 'Board'}</option>
-              <option value="Kinh doanh">{language === 'VN' ? 'Phòng Kinh doanh' : 'Sales'}</option>
-              <option value="Pháp chế">{language === 'VN' ? 'Phòng Pháp chế' : 'Legal'}</option>
-              <option value="Marketing">Marketing</option>
+              <option value="Hành chính-Tổng hợp">Hành chính-Tổng hợp</option>
+              <option value="Đổi mới sáng tạo">Đổi mới sáng tạo</option>
+              <option value="Hỗ trợ Khởi nghiệp">Hỗ trợ Khởi nghiệp</option>
+              <option value="Truyền thông-HTQT">Truyền thông-HTQT</option>
+              <option value="Công nghệ số">Công nghệ số</option>
+              <option value="Thông tin-Thống kê">Thông tin-Thống kê</option>
+              <option value="Giao dịch Công nghệ">Giao dịch Công nghệ</option>
+              <option value="Ứng dụng KHCN">Ứng dụng KHCN</option>
+              <option value="Chưa phân loại">{language === 'VN' ? 'Chưa phân loại' : 'Unclassified'}</option>
             </select>
           </div>
         </div>
@@ -333,7 +367,7 @@ export const ExtractionJobsView: React.FC<ExtractionJobsViewProps> = ({ language
                           {language === 'VN' ? 'ĐANG XỬ LÝ' : 'PROCESSING'}
                         </span>
                       )}
-                      {job.status === 'COMPLETED' && (
+                      {job.status === 'DONE' && (
                         <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 border border-emerald-200">
                           {language === 'VN' ? 'HOÀN THÀNH' : 'COMPLETED'}
                         </span>
@@ -350,15 +384,14 @@ export const ExtractionJobsView: React.FC<ExtractionJobsViewProps> = ({ language
                       <div className="flex items-center gap-3">
                         <div className="flex-1 h-2 bg-[#EEF1F4] rounded-full overflow-hidden border border-[#DCE1E6]">
                           <div
-                            className={`h-full transition-all duration-300 ${
-                              job.status === 'FAILED'
-                                ? 'bg-rose-600'
-                                : job.status === 'COMPLETED'
+                            className={`h-full transition-all duration-300 ${job.status === 'FAILED'
+                              ? 'bg-rose-600'
+                              : job.status === 'DONE'
                                 ? 'bg-emerald-500'
                                 : job.status === 'PROCESSING'
-                                ? 'bg-[#00344c]'
-                                : 'bg-slate-400'
-                            }`}
+                                  ? 'bg-[#00344c]'
+                                  : 'bg-slate-400'
+                              }`}
                             style={{ width: `${job.progress}%` }}
                           />
                         </div>
@@ -401,7 +434,7 @@ export const ExtractionJobsView: React.FC<ExtractionJobsViewProps> = ({ language
                           </button>
                         )}
 
-                        {job.status === 'COMPLETED' && (
+                        {job.status === 'DONE' && (
                           <button
                             onClick={() => alert(language === 'VN' ? `Xem kết quả trích xuất cho ${job.fileName}` : `Viewing extracted output for ${job.fileName}`)}
                             className="p-1.5 text-[#72787e] hover:text-[#00344c] hover:bg-[#EEF1F4] rounded transition-colors cursor-pointer"
@@ -422,7 +455,9 @@ export const ExtractionJobsView: React.FC<ExtractionJobsViewProps> = ({ language
         {/* Footer Pagination */}
         <div className="p-3 bg-[#edf4ff]/30 border-t border-[#DCE1E6] flex items-center justify-between text-xs font-mono text-[#72787e]">
           <span>
-            {language === 'VN' ? 'Hiển thị 1-7 trong tổng số 1,248 tiến trình' : 'Showing 1-7 of 1,248 jobs'}
+            {language === 'VN'
+              ? `Hiển thị ${Math.min((currentPage - 1) * 10 + 1, totalElements)}-${Math.min(currentPage * 10, totalElements)} trong tổng số ${totalElements} tiến trình`
+              : `Showing ${Math.min((currentPage - 1) * 10 + 1, totalElements)}-${Math.min(currentPage * 10, totalElements)} of ${totalElements} jobs`}
           </span>
 
           <div className="flex items-center gap-1">
@@ -433,34 +468,28 @@ export const ExtractionJobsView: React.FC<ExtractionJobsViewProps> = ({ language
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
+            {Array.from({ length: totalPages }, (_, i) => i + 1)
+              .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
+              .map((p, idx, arr) => {
+                const prev = arr[idx - 1];
+                const showDots = prev && p - prev > 1;
+                return (
+                  <React.Fragment key={p}>
+                    {showDots && <span className="px-1 text-[#72787e]">...</span>}
+                    <button
+                      onClick={() => setCurrentPage(p)}
+                      className={`w-6 h-6 rounded flex items-center justify-center font-bold text-xs ${currentPage === p ? 'bg-[#00344c] text-white' : 'hover:bg-[#EEF1F4] text-[#0f1d28]'
+                        }`}
+                    >
+                      {p}
+                    </button>
+                  </React.Fragment>
+                );
+              })}
             <button
-              onClick={() => setCurrentPage(1)}
-              className={`w-6 h-6 rounded flex items-center justify-center font-bold text-xs ${
-                currentPage === 1 ? 'bg-[#00344c] text-white' : 'hover:bg-[#EEF1F4] text-[#0f1d28]'
-              }`}
-            >
-              1
-            </button>
-            <button
-              onClick={() => setCurrentPage(2)}
-              className={`w-6 h-6 rounded flex items-center justify-center font-bold text-xs ${
-                currentPage === 2 ? 'bg-[#00344c] text-white' : 'hover:bg-[#EEF1F4] text-[#0f1d28]'
-              }`}
-            >
-              2
-            </button>
-            <button
-              onClick={() => setCurrentPage(3)}
-              className={`w-6 h-6 rounded flex items-center justify-center font-bold text-xs ${
-                currentPage === 3 ? 'bg-[#00344c] text-white' : 'hover:bg-[#EEF1F4] text-[#0f1d28]'
-              }`}
-            >
-              3
-            </button>
-            <span>...</span>
-            <button
-              onClick={() => setCurrentPage(prev => prev + 1)}
-              className="p-1 text-[#72787e] hover:text-[#00344c] rounded cursor-pointer"
+              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
+              disabled={currentPage === totalPages}
+              className="p-1 text-[#72787e] hover:text-[#00344c] disabled:opacity-30 rounded cursor-pointer"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

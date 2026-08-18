@@ -169,10 +169,12 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
   const health = data?.dataHealth || {
     deletedInSourceCount: 0,
     unmappedDepartmentCount: 0,
-    failedExtractionJobCount: 0
+    failedExtractionJobCount: 0,
+    pendingAiLabelingCount: 0
   };
 
-  const isHealthClean = health.deletedInSourceCount === 0 && health.unmappedDepartmentCount === 0 && health.failedExtractionJobCount === 0;
+  const isHealthClean = health.deletedInSourceCount === 0 && health.unmappedDepartmentCount === 0 &&
+    health.failedExtractionJobCount === 0 && (!health.pendingAiLabelingCount || health.pendingAiLabelingCount === 0);
 
   return (
     <div className="w-full max-w-7xl mx-auto p-4 lg:p-6 space-y-6 antialiased font-body animate-fade-in">
@@ -563,6 +565,18 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
                     {health.failedExtractionJobCount}
                   </span>
                 </div>
+
+                {health.pendingAiLabelingCount !== undefined && health.pendingAiLabelingCount > 0 && (
+                  <div className="flex items-center justify-between text-xs">
+                    <div>
+                      <p className="font-semibold text-gray-800">{language === 'VN' ? 'Đại biểu đang chờ gán nhãn chuyên môn AI' : 'Delegates Web-scraping Pending AI Labeling'}</p>
+                      <p className="text-[10px] text-gray-400">ai_labeled = false</p>
+                    </div>
+                    <span className="font-mono font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-600">
+                      {health.pendingAiLabelingCount}
+                    </span>
+                  </div>
+                )}
               </div>
             </div>
           </div>
