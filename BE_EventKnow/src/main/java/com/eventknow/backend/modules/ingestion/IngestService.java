@@ -109,15 +109,20 @@ public class IngestService {
             // Resolve sheet event meta
             String sheetEventName = manualEventName;
             LocalDate sheetEventDate = manualEventDate;
-            if (sheetEventName == null || sheetEventName.trim().isEmpty()) {
+            boolean isDateFallback = (manualEventDate == null);
+            if (sheetEventName == null || sheetEventName.trim().isEmpty() || sheetEventDate == null) {
                 EventMeta meta = parseEventMeta(originalFileName, sheet.sheetName());
-                sheetEventName = meta.name();
+                if (sheetEventName == null || sheetEventName.trim().isEmpty()) {
+                    sheetEventName = meta.name();
+                }
                 if (sheetEventDate == null) {
                     sheetEventDate = meta.date();
+                    isDateFallback = meta.isDateFallback();
                 }
             }
 
-            UUID eventId = eventResolutionService.resolveCanonicalEvent(sheetEventName, sheetEventDate, department);
+            UUID eventId = eventResolutionService.resolveCanonicalEvent(sheetEventName, sheetEventDate, isDateFallback,
+                    department);
             com.eventknow.backend.model.entity.Core.EventEntity eventEntity = eventRepository.findById(eventId)
                     .orElse(null);
 
@@ -266,7 +271,7 @@ public class IngestService {
         return progress;
     }
 
-    public record EventMeta(String name, LocalDate date) {
+    public record EventMeta(String name, LocalDate date, boolean isDateFallback) {
     }
 
     private boolean isGenericSheetName(String sheetName) {
@@ -303,7 +308,7 @@ public class IngestService {
             cleanName = cleanName.substring(0, dotIdx);
         }
         cleanName = cleanName.replaceAll("[-_]+", " ").trim();
-        return new EventMeta(cleanName, LocalDate.now());
+        return new EventMeta(cleanName, LocalDate.now(), true);
     }
 
     private EventMeta parseEventMetaFromText(String text) {
@@ -328,12 +333,12 @@ public class IngestService {
                     int year = Integer.parseInt(matcher.group(1));
                     int month = Integer.parseInt(matcher.group(2));
                     int day = Integer.parseInt(matcher.group(3));
-                    return new EventMeta(cleanName, LocalDate.of(year, month, day));
+                    return new EventMeta(cleanName, LocalDate.of(year, month, day), false);
                 } else {
                     int day = Integer.parseInt(matcher.group(4));
                     int month = Integer.parseInt(matcher.group(5));
                     int year = Integer.parseInt(matcher.group(6));
-                    return new EventMeta(cleanName, LocalDate.of(year, month, day));
+                    return new EventMeta(cleanName, LocalDate.of(year, month, day), false);
                 }
             } catch (Exception e) {
                 log.warn("Failed parser date from text '{}'", matcher.group(0), e);

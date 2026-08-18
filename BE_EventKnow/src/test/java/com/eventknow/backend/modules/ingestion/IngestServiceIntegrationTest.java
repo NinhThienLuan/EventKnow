@@ -20,7 +20,6 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -73,6 +72,9 @@ public class IngestServiceIntegrationTest {
 
         @Autowired
         private SemanticLabelingScheduler semanticLabelingScheduler;
+
+        @Autowired
+        private EventResolutionService eventResolutionService;
 
         @MockBean
         private GeminiExtractionClient geminiExtractionClient;
@@ -619,5 +621,87 @@ public class IngestServiceIntegrationTest {
                 attendeeProfileRepository.deleteAll();
                 // Clean orgs
                 organizationRepository.deleteAll();
+        }
+
+        @Test
+        public void testCollisionWithWeakSignals() {
+                try {
+                        orgRepositoryCheckReset();
+                        eventRepository.deleteAll();
+
+                        // Both fall back to date = LocalDate.now(), isDateFallback = true, department =
+                        // "UNMAPPED"
+                        // Name similarity ~0.4074 (below 0.85 threshold) -> Should NOT merge
+                        UUID id1 = eventResolutionService.resolveCanonicalEvent("Inno cong an", LocalDate.now(), true,
+                                        "UNMAPPED");
+                        UUID id2 = eventResolutionService.resolveCanonicalEvent("inno AI", LocalDate.now(), true,
+                                        "UNMAPPED");
+
+                        assertNotEquals(id1, id2);
+                        System.out.println("testCollisionWithWeakSignals: passed");
+                } catch (Exception e) {
+                        fail(e.getMessage());
+                }
+        }
+
+        @Test
+        public void testSimilarityWithStrongSignals() {
+                try {
+                        orgRepositoryCheckReset();
+                        eventRepository.deleteAll();
+
+                        // Both have non-fallback date and mapped department
+                        // Event names similarity is > 0.5 (AI for SMEs 2026 vs AI for SMEs) -> Should
+                        // merge
+                        UUID id1 = eventResolutionService.resolveCanonicalEvent("AI for SMEs 2026",
+                                        LocalDate.of(2026, 11, 20), false, "IT - Information Technology");
+                        UUID id2 = eventResolutionService.resolveCanonicalEvent("AI for SMEs",
+                                        LocalDate.of(2026, 11, 20), false, "IT - Information Technology");
+
+                        assertEquals(id1, id2);
+                        System.out.println("testSimilarityWithStrongSignals: passed");
+                } catch (Exception e) {
+                        fail(e.getMessage());
+                }
+        }
+
+        @Test
+        public void testNoOverlapOnMismatchedSignals() {
+                try {
+                        orgRepositoryCheckReset();
+                        eventRepository.deleteAll();
+
+                        // Same names, but different departments (IT vs HR) -> Should NOT merge (spatial
+                        // separation check)
+                        UUID id1 = eventResolutionService.resolveCanonicalEvent("AI for SMEs",
+                                        LocalDate.of(2026, 11, 20), false, "IT - Information Technology");
+                        UUID id2 = eventResolutionService.resolveCanonicalEvent("AI for SMEs",
+                                        LocalDate.of(2026, 11, 20), false, "HR - Human Resources");
+
+                        assertNotEquals(id1, id2);
+                        System.out.println("testNoOverlapOnMismatchedSignals: passed");
+                } catch (Exception e) {
+                        fail(e.getMessage());
+                }
+        }
+
+        @Test
+        public void testWeakSignalBothUnmapped() {
+                try {
+                        orgRepositoryCheckReset();
+                        eventRepository.deleteAll();
+
+                        // Different names, both unmapped department and fallback date -> Should NOT
+                        // merge
+                        UUID id1 = eventResolutionService.resolveCanonicalEvent("Ai for SMEs", LocalDate.now(), true,
+                                        "UNMAPPED");
+                        UUID id2 = eventResolutionService.resolveCanonicalEvent("Hoi thao Blockchain", LocalDate.now(),
+                                        true, "UNMAPPED");
+
+                        assertNotEquals(id1, id2);
+                        System.out.println("testWeakSignalBothUnmapped: passed");
+                } catch (Exception e) {
+                        fail(e.getMessage());
+                }
         }
 }

@@ -20,6 +20,8 @@ public class EventService {
     private final NamedParameterJdbcTemplate jdbc;
     private final EventRepository eventRepository;
 
+    public static final String UNCLASSIFIED_DEPARTMENT = "Chưa phân loại";
+
     /**
      * Get Source Tree Structure
      */
@@ -56,8 +58,9 @@ public class EventService {
         List<TreeEventRow> rows = jdbc.query(sql.toString(), params, (rs, rowNum) -> {
             TreeEventRow row = new TreeEventRow();
             row.department = rs.getString("department");
-            if (row.department == null || row.department.trim().isEmpty()) {
-                row.department = "Chưa phân loại";
+            if (row.department == null || row.department.trim().isEmpty()
+                    || row.department.equalsIgnoreCase("UNMAPPED")) {
+                row.department = UNCLASSIFIED_DEPARTMENT;
             }
             double yrVal = rs.getDouble("event_year");
             row.year = rs.wasNull() ? null : (int) yrVal;
@@ -175,7 +178,9 @@ public class EventService {
         result.put("eventId", event.getId().toString());
         result.put("eventName", event.getEventName());
         result.put("eventDate", event.getEventDate() != null ? event.getEventDate().toString() : "Chưa xác định");
-        result.put("department", event.getDepartment() != null ? event.getDepartment() : "Chưa phân loại");
+        result.put("department", (event.getDepartment() != null && !event.getDepartment().equalsIgnoreCase("UNMAPPED"))
+                ? event.getDepartment()
+                : UNCLASSIFIED_DEPARTMENT);
         result.put("topicTags", event.getTopicTags() != null ? event.getTopicTags() : Collections.emptyList());
         result.put("rawEvents", rawEvents);
         result.put("attendees", attendees);

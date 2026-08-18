@@ -23,17 +23,28 @@ public class EventResolutionService {
     private double matchThreshold;
 
     @Transactional
-    public UUID resolveCanonicalEvent(String eventName, LocalDate eventDate, String department) {
+    public UUID resolveCanonicalEvent(String eventName, LocalDate eventDate, boolean isDateFallback,
+            String department) {
         if (eventName == null || eventName.trim().isEmpty()) {
             throw new IllegalArgumentException("Event name cannot be null or empty");
         }
 
         String cleanName = eventName.trim();
-        log.info("Resolving canonical event for: {}, date: {}, dept: {}", cleanName, eventDate, department);
+
+        // 2-Level Threshold: 0.85 for weak/fallback signal, 0.5 for strong signal
+        boolean lowReliability = isDateFallback
+                || department == null
+                || department.trim().isEmpty()
+                || department.equalsIgnoreCase("UNMAPPED");
+
+        double threshold = lowReliability ? 0.85 : 0.5;
+
+        log.info("Resolving canonical event for: {}, date: {}, dept: {} (isDateFallback: {}, selected threshold: {})",
+                cleanName, eventDate, department, isDateFallback, threshold);
 
         Optional<EventEntity> similarEventOpt = Optional.empty();
         if (eventDate != null) {
-            similarEventOpt = eventRepository.findSimilarEvent(cleanName, eventDate, department, matchThreshold);
+            similarEventOpt = eventRepository.findSimilarEvent(cleanName, eventDate, department, threshold);
         }
 
         if (similarEventOpt.isPresent()) {
