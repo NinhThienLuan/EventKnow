@@ -18,6 +18,7 @@ export interface AttendeeProfile {
         sheetName: string;
         eventDate: string;
         attendanceStatus: string;
+        snapshotData?: Record<string, any>;
     }>;
 }
 

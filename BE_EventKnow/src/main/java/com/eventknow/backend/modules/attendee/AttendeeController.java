@@ -285,6 +285,8 @@ public class AttendeeController {
                                 sheetMap.put("eventDate", "");
                         }
                         sheetMap.put("attendanceStatus", att.getAttendanceStatus().name());
+                        sheetMap.put("snapshotData",
+                                        att.getSnapshotData() != null ? att.getSnapshotData() : Collections.emptyMap());
                         return sheetMap;
                 }).collect(Collectors.toList());
                 map.put("sourceSheets", sourceSheetsList);
@@ -317,6 +319,8 @@ public class AttendeeController {
                                 sheetMap.put("eventDate", "");
                         }
                         sheetMap.put("attendanceStatus", att.getAttendanceStatus().name());
+                        sheetMap.put("snapshotData",
+                                        att.getSnapshotData() != null ? att.getSnapshotData() : Collections.emptyMap());
                         return sheetMap;
                 }).collect(Collectors.toList());
 

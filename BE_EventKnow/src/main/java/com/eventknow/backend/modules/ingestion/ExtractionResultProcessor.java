@@ -123,8 +123,25 @@ public class ExtractionResultProcessor {
                     }
                 }
 
+                Map<String, Object> profileAttributes = new HashMap<>();
+                Map<String, Object> attendanceAttributes = new HashMap<>();
+                if (pEnt.dynamicAttributes() != null) {
+                    for (Map.Entry<String, Object> entry : pEnt.dynamicAttributesMap().entrySet()) {
+                        String key = entry.getKey();
+                        Object val = entry.getValue();
+                        if ("ai_labeled".equalsIgnoreCase(key)) {
+                            continue;
+                        }
+                        if (isProfileAttribute(key)) {
+                            profileAttributes.put(key, val);
+                        } else {
+                            attendanceAttributes.put(key, val);
+                        }
+                    }
+                }
+
                 if (personEntity == null) {
-                    personEntity = resolveOrCreateAttendee(pEnt, linkedOrg);
+                    personEntity = resolveOrCreateAttendee(pEnt, linkedOrg, profileAttributes);
 
                     if (email != null && !email.trim().isEmpty()) {
                         localResolvedAttendees.put(email.trim().toLowerCase(), personEntity);
@@ -135,13 +152,32 @@ public class ExtractionResultProcessor {
                             localResolvedAttendees.put(normName + "_" + phone.trim(), personEntity);
                         }
                     }
+                } else {
+                    Map<String, Object> existingDynAttrs = personEntity.getDynamicAttributes();
+                    if (existingDynAttrs == null) {
+                        existingDynAttrs = new HashMap<>();
+                    } else {
+                        existingDynAttrs = new HashMap<>(existingDynAttrs);
+                    }
+                    boolean changed = false;
+                    for (Map.Entry<String, Object> entry : profileAttributes.entrySet()) {
+                        String key = entry.getKey();
+                        Object val = entry.getValue();
+                        if (!existingDynAttrs.containsKey(key) || existingDynAttrs.get(key) == null
+                                || String.valueOf(existingDynAttrs.get(key)).trim().isEmpty()) {
+                            existingDynAttrs.put(key, val);
+                            changed = true;
+                        }
+                    }
+                    if (changed) {
+                        personEntity.setDynamicAttributes(existingDynAttrs);
+                        attendeeProfileRepository.saveAndFlush(personEntity);
+                    }
                 }
 
                 // Create attendance record for the person
                 Map<String, Object> snapshotData = new HashMap<>();
-                if (pEnt.dynamicAttributes() != null) {
-                    snapshotData.putAll(pEnt.dynamicAttributesMap());
-                }
+                snapshotData.putAll(attendanceAttributes);
                 snapshotData.put("extracted_full_name", fullName);
                 snapshotData.put("extracted_email", pEnt.email());
                 snapshotData.put("extracted_phone", pEnt.phone());
@@ -226,8 +262,21 @@ public class ExtractionResultProcessor {
         return saved;
     }
 
-    private AttendeeProfileEntity resolveOrCreateAttendee(GeminiExtractionClient.ExtractedEntity pEnt,
-            OrganizationEntity linkedOrg) {
+    private boolean isProfileAttribute(String key) {
+        if (key == null)
+            return false;
+        String norm = normalizeString(key);
+        return norm.contains("cccd") || norm.contains("cmt") || norm.contains("cmnd") ||
+                norm.contains("mst") || norm.contains("tax") || norm.contains("ma so thue") ||
+                norm.contains("linkedin") || norm.contains("github") || norm.contains("facebook") ||
+                norm.contains("portfolio") || norm.contains("cv") || norm.contains("website") ||
+                norm.contains("trang web") || norm.contains("so dinh danh");
+    }
+
+    private AttendeeProfileEntity resolveOrCreateAttendee(
+            GeminiExtractionClient.ExtractedEntity pEnt,
+            OrganizationEntity linkedOrg,
+            Map<String, Object> profileAttributes) {
         String email = pEnt.email();
         Optional<AttendeeProfileEntity> matched = Optional.empty();
 
@@ -247,6 +296,29 @@ public class ExtractionResultProcessor {
                 person = getCanonicalProfile(person);
             }
             log.info("Deduplicated Attendee: {} matching existing attendeeId {}", person.getFullName(), person.getId());
+
+            // Survivorship Strategy for Profile Attributes
+            Map<String, Object> existingDynAttrs = person.getDynamicAttributes();
+            if (existingDynAttrs == null) {
+                existingDynAttrs = new HashMap<>();
+            } else {
+                existingDynAttrs = new HashMap<>(existingDynAttrs);
+            }
+            boolean changed = false;
+            for (Map.Entry<String, Object> entry : profileAttributes.entrySet()) {
+                String key = entry.getKey();
+                Object val = entry.getValue();
+                if (!existingDynAttrs.containsKey(key) || existingDynAttrs.get(key) == null
+                        || String.valueOf(existingDynAttrs.get(key)).trim().isEmpty()) {
+                    existingDynAttrs.put(key, val);
+                    changed = true;
+                }
+            }
+            if (changed) {
+                person.setDynamicAttributes(existingDynAttrs);
+                attendeeProfileRepository.saveAndFlush(person);
+            }
+
             return person;
         }
 
@@ -290,7 +362,7 @@ public class ExtractionResultProcessor {
                 .expertiseTags(pEnt.expertiseTags() != null ? pEnt.expertiseTags() : Collections.emptyList())
                 .followUpStatus(AttendeeProfileEntity.FollowUpStatus.CHUA_LIEN_HE)
                 .aiLabeled(false) // First core ingestion path always sets to false (enrichment is async)
-                .dynamicAttributes(pEnt.dynamicAttributes() != null ? pEnt.dynamicAttributesMap() : new HashMap<>())
+                .dynamicAttributes(profileAttributes != null ? profileAttributes : new HashMap<>())
                 .isActive(true)
                 .build();
 

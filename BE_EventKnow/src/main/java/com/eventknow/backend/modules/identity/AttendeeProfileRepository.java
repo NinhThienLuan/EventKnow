@@ -24,6 +24,18 @@ public interface AttendeeProfileRepository extends JpaRepository<AttendeeProfile
 
         List<AttendeeProfileEntity> findTop30ByAiLabeledFalseAndIsActiveTrue();
 
+        @Query("SELECT DISTINCT ap FROM AttendeeProfileEntity ap " +
+                        "JOIN EventAttendanceEntity ea ON ea.attendeeProfile = ap " +
+                        "WHERE ea.rawEvent.id = :rawEventId " +
+                        "  AND ea.sourceRowNumber BETWEEN :rowStart AND :rowEnd " +
+                        "  AND ap.aiLabeled = false " +
+                        "  AND ap.isActive = true " +
+                        "  AND ea.isDeletedInSource = false")
+        List<AttendeeProfileEntity> findPendingForJob(
+                        @Param("rawEventId") UUID rawEventId,
+                        @Param("rowStart") int rowStart,
+                        @Param("rowEnd") int rowEnd);
+
         @Query(value = "SELECT a.id AS idA, a.full_name AS nameA, b.id AS idB, b.full_name AS nameB, " +
                         "COALESCE( " +
                         "    CASE WHEN a.email = b.email OR a.phone = b.phone THEN 1.0 END, " +

@@ -15,7 +15,8 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  Building2
+  Building2,
+  FileSpreadsheet
 } from 'lucide-react';
 import { translations } from '../data/translations';
 
@@ -26,6 +27,7 @@ interface ExtractionJobsViewProps {
 interface JobItem {
   id: string;
   fileName: string;
+  sheetName?: string;
   department: string;
   status: 'DONE' | 'PROCESSING' | 'FAILED' | 'PENDING';
   progress: number;
@@ -343,10 +345,19 @@ export const ExtractionJobsView: React.FC<ExtractionJobsViewProps> = ({ language
                 filteredJobs.map(job => (
                   <tr key={job.id} className="hover:bg-[#F8FAFC] transition-colors">
                     {/* File Name */}
-                    <td className="py-3.5 px-4 font-semibold text-[#0f1d28]">
-                      <div className="flex items-center gap-2">
-                        <FileText className="w-4 h-4 text-[#1b4b66] shrink-0" />
-                        <span className="truncate max-w-xs sm:max-w-md">{job.fileName}</span>
+                    <td className="py-3.5 px-4">
+                      <div className="flex items-center gap-3">
+                        <FileSpreadsheet className="w-5 h-5 text-emerald-600 shrink-0" />
+                        <div>
+                          <div className="font-semibold text-[#0f1d28] truncate max-w-xs sm:max-w-md">{job.fileName}</div>
+                          {job.sheetName ? (
+                            <span className="inline-block text-[10px] px-2 py-0.5 mt-0.5 rounded bg-slate-100 text-slate-600 font-mono font-medium">
+                              Sheet: {job.sheetName}
+                            </span>
+                          ) : (
+                            <span className="text-[10px] text-slate-400">Sheet chính</span>
+                          )}
+                        </div>
                       </div>
                     </td>
 

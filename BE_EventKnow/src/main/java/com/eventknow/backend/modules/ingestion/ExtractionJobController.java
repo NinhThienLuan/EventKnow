@@ -30,6 +30,7 @@ public class ExtractionJobController {
     public static class ExtractionProgressDto {
         private String id;
         private String fileName;
+        private String sheetName;
         private String department;
         private String status;
         private int progress;
@@ -87,29 +88,36 @@ public class ExtractionJobController {
                     SELECT
                         re.id AS raw_event_id,
                         re.source_file_name AS file_name,
+                        re.sheet_name AS sheet_name,
                         re.department AS department,
                         re.ingestion_status AS parent_status,
                         COUNT(ej.id) AS total_jobs,
+                        COUNT(CASE WHEN ej.status = 'PENDING' THEN 1 END) AS pending_jobs,
+                        COUNT(CASE WHEN ej.status = 'PROCESSING' THEN 1 END) AS processing_jobs_only,
+                        COUNT(CASE WHEN ej.status = 'RETRYING' THEN 1 END) AS retrying_jobs,
                         COUNT(CASE WHEN ej.status = 'DONE' THEN 1 END) AS done_jobs,
-                        COUNT(CASE WHEN ej.status = 'FAILED' THEN 1 END) AS failed_jobs,
-                        COUNT(CASE WHEN ej.status IN ('PENDING', 'PROCESSING', 'RETRYING') THEN 1 END) AS processing_jobs
+                        COUNT(CASE WHEN ej.status = 'FAILED' THEN 1 END) AS failed_jobs
                     FROM raw_events re
                     LEFT JOIN extraction_jobs ej ON ej.raw_event_id = re.id
                     WHERE 1=1
                 """
-                + filterSqlStr + """
-                            GROUP BY re.id, re.source_file_name, re.department, re.ingestion_status
+                + filterSqlStr
+                + """
+                            GROUP BY re.id, re.source_file_name, re.sheet_name, re.department, re.ingestion_status
                         ),
                         computed_summary AS (
                             SELECT
                                 raw_event_id AS id,
                                 file_name AS fileName,
+                                sheet_name AS sheetName,
                                 department,
                                 CASE
                                     WHEN total_jobs > 0 THEN
                                         CASE
+                                            WHEN done_jobs = total_jobs THEN 'DONE'
+                                            WHEN pending_jobs = total_jobs THEN 'PENDING'
+                                            WHEN (pending_jobs > 0 OR processing_jobs_only > 0 OR retrying_jobs > 0) THEN 'PROCESSING'
                                             WHEN failed_jobs > 0 THEN 'FAILED'
-                                            WHEN processing_jobs > 0 THEN 'PROCESSING'
                                             ELSE 'DONE'
                                         END
                                     ELSE
@@ -138,30 +146,37 @@ public class ExtractionJobController {
                     SELECT
                         re.id AS raw_event_id,
                         re.source_file_name AS file_name,
+                        re.sheet_name AS sheet_name,
                         re.department AS department,
                         re.ingestion_status AS parent_status,
                         COUNT(ej.id) AS total_jobs,
+                        COUNT(CASE WHEN ej.status = 'PENDING' THEN 1 END) AS pending_jobs,
+                        COUNT(CASE WHEN ej.status = 'PROCESSING' THEN 1 END) AS processing_jobs_only,
+                        COUNT(CASE WHEN ej.status = 'RETRYING' THEN 1 END) AS retrying_jobs,
                         COUNT(CASE WHEN ej.status = 'DONE' THEN 1 END) AS done_jobs,
                         COUNT(CASE WHEN ej.status = 'FAILED' THEN 1 END) AS failed_jobs,
-                        COUNT(CASE WHEN ej.status IN ('PENDING', 'PROCESSING', 'RETRYING') THEN 1 END) AS processing_jobs,
                         re.updated_at AS updated_at
                     FROM raw_events re
                     LEFT JOIN extraction_jobs ej ON ej.raw_event_id = re.id
                     WHERE 1=1
                 """
-                + filterSqlStr + """
-                            GROUP BY re.id, re.source_file_name, re.department, re.ingestion_status, re.updated_at
+                + filterSqlStr
+                + """
+                            GROUP BY re.id, re.source_file_name, re.sheet_name, re.department, re.ingestion_status, re.updated_at
                         ),
                         computed_summary AS (
                             SELECT
                                 raw_event_id AS id,
                                 file_name AS fileName,
+                                sheet_name AS sheet_name,
                                 department,
                                 CASE
                                     WHEN total_jobs > 0 THEN
                                         CASE
+                                            WHEN done_jobs = total_jobs THEN 'DONE'
+                                            WHEN pending_jobs = total_jobs THEN 'PENDING'
+                                            WHEN (pending_jobs > 0 OR processing_jobs_only > 0 OR retrying_jobs > 0) THEN 'PROCESSING'
                                             WHEN failed_jobs > 0 THEN 'FAILED'
-                                            WHEN processing_jobs > 0 THEN 'PROCESSING'
                                             ELSE 'DONE'
                                         END
                                     ELSE
@@ -183,7 +198,7 @@ public class ExtractionJobController {
                                 updated_at
                             FROM job_summary
                         )
-                        SELECT id, fileName, department, status, progress, updated_at
+                        SELECT id, fileName, sheet_name, department, status, progress, updated_at
                         FROM computed_summary
                         WHERE 1=1
                         """;
@@ -205,6 +220,7 @@ public class ExtractionJobController {
             return ExtractionProgressDto.builder()
                     .id(rs.getString("id"))
                     .fileName(rs.getString("fileName"))
+                    .sheetName(rs.getString("sheet_name"))
                     .department(rs.getString("department"))
                     .status(rs.getString("status"))
                     .progress(rs.getInt("progress"))

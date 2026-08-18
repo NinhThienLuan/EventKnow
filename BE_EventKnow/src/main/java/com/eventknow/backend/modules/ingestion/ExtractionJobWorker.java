@@ -55,8 +55,8 @@ public class ExtractionJobWorker {
 
     private void processJob(ExtractionJobEntity job) {
         log.info("Processing extraction job ID: {} (rows {} to {})", job.getId(), job.getRowStart(), job.getRowEnd());
-        job.setStatus(ExtractionJobEntity.ExtractionStatus.RETRYING); // Mark as active/retrying during call
-        extractionJobRepository.save(job);
+        // Keep status as PENDING (or RETRYING) during structural ingestion to avoid
+        // race condition with AI scheduler
 
         try {
             // 1. Deserialize raw rows content & headers array
@@ -201,12 +201,6 @@ public class ExtractionJobWorker {
 
             // 4. Process each row in isolated REQUIRES_NEW transactions
             for (PreExtractedRow preExt : preExtractedRows) {
-                List<GeminiExtractionClient.DynamicAttributeDto> finalDynAttrs = new ArrayList<>(
-                        preExt.dynamicAttributes());
-                // Add default ai_labeled=false attribute
-                finalDynAttrs.add(
-                        new GeminiExtractionClient.DynamicAttributeDto("ai_labeled", "false"));
-
                 // Build Extracted PERSON Entity
                 GeminiExtractionClient.ExtractedEntity personEntity = new GeminiExtractionClient.ExtractedEntity(
                         "PERSON",
@@ -222,7 +216,7 @@ public class ExtractionJobWorker {
                         preExt.researchFieldsRaw(),
                         Collections.emptyList(), // Empty research domains initially
                         Collections.emptyList(), // Empty expertise tags initially
-                        finalDynAttrs);
+                        preExt.dynamicAttributes());
 
                 List<GeminiExtractionClient.ExtractedEntity> rowEntities = new ArrayList<>();
                 rowEntities.add(personEntity);
@@ -265,11 +259,12 @@ public class ExtractionJobWorker {
                 }
             }
 
-            // 5. Update status to DONE
-            job.setStatus(ExtractionJobEntity.ExtractionStatus.DONE);
+            // 5. Update status to PROCESSING (structural ingestion complete, ready for AI
+            // phase)
+            job.setStatus(ExtractionJobEntity.ExtractionStatus.PROCESSING);
             job.setLastError(null);
             extractionJobRepository.save(job);
-            log.info("Extraction job ID {} succeeded.", job.getId());
+            log.info("Extraction job ID {} succeeded with Java-parsing. Status set to PROCESSING.", job.getId());
 
         } catch (ExtractionSchemaException e) {
             log.error("Fatal schema constraint error on job {}: {}", job.getId(), e.getMessage());
@@ -360,12 +355,14 @@ public class ExtractionJobWorker {
         List<String> failedRanges = new java.util.ArrayList<>();
 
         for (ExtractionJobEntity s : siblings) {
-            if (s.getStatus() == ExtractionJobEntity.ExtractionStatus.PENDING ||
-                    s.getStatus() == ExtractionJobEntity.ExtractionStatus.RETRYING) {
+            ExtractionJobEntity.ExtractionStatus status = s.getStatus();
+            if (status == ExtractionJobEntity.ExtractionStatus.PENDING ||
+                    status == ExtractionJobEntity.ExtractionStatus.RETRYING ||
+                    status == ExtractionJobEntity.ExtractionStatus.PROCESSING) {
                 allDone = false;
                 break;
             }
-            if (s.getStatus() == ExtractionJobEntity.ExtractionStatus.FAILED) {
+            if (status == ExtractionJobEntity.ExtractionStatus.FAILED) {
                 hasFailed = true;
                 failedRanges.add("[" + s.getRowStart() + "-" + s.getRowEnd() + "]");
             }
@@ -384,6 +381,12 @@ public class ExtractionJobWorker {
             }
             rawEventRepository.save(reloaded);
             log.info("Transitioned parent rawEvent ID {} status to {}.", rawEventId, reloaded.getIngestionStatus());
+        } else {
+            RawEventEntity reloaded = rawEventRepository.findById(rawEventId).orElse(rawEvent);
+            if (reloaded.getIngestionStatus() != RawEventEntity.IngestionStatus.PROCESSING) {
+                reloaded.setIngestionStatus(RawEventEntity.IngestionStatus.PROCESSING);
+                rawEventRepository.save(reloaded);
+            }
         }
     }
 }

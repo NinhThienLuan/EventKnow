@@ -22,4 +22,17 @@ public interface EventAttendanceRepository extends JpaRepository<EventAttendance
     List<EventAttendanceEntity> findByAttendeeProfile(AttendeeProfileEntity attendeeProfile);
 
     List<EventAttendanceEntity> findByOrganization(OrganizationEntity organization);
+
+    @Query("SELECT DISTINCT ea FROM EventAttendanceEntity ea " +
+            "JOIN FETCH ea.attendeeProfile ap " +
+            "WHERE ea.rawEvent.id = :rawEventId " +
+            "  AND ea.sourceRowNumber BETWEEN :rowStart AND :rowEnd " +
+            "  AND ap.aiLabeled = false " +
+            "  AND ap.isActive = true " +
+            "  AND ea.isDeletedInSource = false " +
+            "ORDER BY ea.sourceRowNumber ASC")
+    List<EventAttendanceEntity> findPendingAttendancesForJob(
+            @Param("rawEventId") UUID rawEventId,
+            @Param("rowStart") int rowStart,
+            @Param("rowEnd") int rowEnd);
 }

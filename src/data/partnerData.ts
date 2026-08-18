@@ -20,6 +20,7 @@ export interface AttendeeProfile {
     eventDate: string;
     roleInEvent: string;
     attendanceStatus: 'CONFIRMED' | 'ATTENDED' | 'ABSENT';
+    snapshotData?: Record<string, any>;
   }[];
   notes: {
     id: string;

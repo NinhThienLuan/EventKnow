@@ -211,7 +211,9 @@ public class IngestService {
             }
         }
 
-        if (totalJobsCreated == 0) {
+        if (totalJobsCreated == 0)
+
+        {
             RawEventEntity rawEvent = RawEventEntity.builder()
                     .googleDriveFileId(googleDriveFileId)
                     .sourceFileName(originalFileName)
@@ -247,6 +249,7 @@ public class IngestService {
         for (ExtractionJobEntity job : jobs) {
             switch (job.getStatus()) {
                 case PENDING -> pending++;
+                case PROCESSING -> pending++;
                 case RETRYING -> retrying++;
                 case DONE -> success++;
                 case FAILED -> failed++;

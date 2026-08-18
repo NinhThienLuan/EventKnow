@@ -795,23 +795,6 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
                 </div>
               </div>
 
-              {/* Dynamic Attributes Extracted from Sheets */}
-              <div className="space-y-3">
-                <h4 className="text-xs font-bold text-[#0f1d28] uppercase font-mono tracking-wider flex items-center gap-1.5">
-                  <Sparkles className="w-4 h-4 text-amber-500" />
-                  <span>{language === 'VN' ? 'Thuộc tính Động trích xuất từ Sheet' : 'Dynamic Sheet Attributes'}</span>
-                </h4>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
-                  {Object.entries(selectedAttendee.dynamicAttributes).map(([key, val]) => (
-                    <div key={key} className="bg-[#EEF1F4]/70 p-3 rounded-lg border border-[#DCE1E6] space-y-0.5">
-                      <p className="text-[10px] font-bold text-[#72787e] uppercase font-mono">{key}</p>
-                      <p className="text-xs font-semibold text-[#0f1d28]">{val}</p>
-                    </div>
-                  ))}
-                </div>
-              </div>
-
               {/* Source Sheets & Attendance History */}
               <div className="space-y-3">
                 <h4 className="text-xs font-bold text-[#0f1d28] uppercase font-mono tracking-wider flex items-center gap-1.5">
@@ -844,6 +827,32 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
                       <div className="text-[11px] text-[#41474d] bg-[#F8FAFC] p-2 rounded border border-[#DCE1E6]">
                         <span className="font-bold text-[#1b4b66]">{language === 'VN' ? 'Vai trò trong sự kiện:' : 'Event Role:'}</span> {s.roleInEvent}
                       </div>
+
+                      {s.snapshotData && Object.keys(s.snapshotData).length > 0 && (
+                        <div className="mt-2 pt-2 border-t border-[#DCE1E6] space-y-1.5">
+                          <p className="text-[10px] font-bold text-[#72787e] uppercase font-mono tracking-wider">
+                            {language === 'VN' ? 'Thuộc tính Sự kiện:' : 'Event Attributes:'}
+                          </p>
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                            {Object.entries(s.snapshotData)
+                              .filter(([key]) => ![
+                                'extracted_full_name',
+                                'extracted_email',
+                                'extracted_phone',
+                                'extracted_academic_title_raw',
+                                'source_row_number',
+                                'raw_event_id',
+                                'is_deleted_in_source'
+                              ].includes(key))
+                              .map(([key, val]) => (
+                                <div key={key} className="bg-[#EEF1F4]/40 p-2 rounded border border-[#DCE1E6]/50 space-y-0.5">
+                                  <p className="text-[9px] font-bold text-[#72787e] uppercase font-mono">{key}</p>
+                                  <p className="text-xs font-semibold text-[#0f1d28]">{String(val)}</p>
+                                </div>
+                              ))}
+                          </div>
+                        </div>
+                      )}
                     </div>
                   ))}
                 </div>
