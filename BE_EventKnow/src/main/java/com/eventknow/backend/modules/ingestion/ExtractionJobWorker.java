@@ -8,7 +8,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.*;
 
@@ -19,9 +18,9 @@ public class ExtractionJobWorker {
 
     private final ExtractionJobRepository extractionJobRepository;
     private final RawEventRepository rawEventRepository;
-    private final GeminiExtractionClient geminiExtractionClient;
     private final ExtractionResultProcessor resultProcessor;
     private final RuleBasedTitleNormalizer titleNormalizer;
+    private final org.springframework.transaction.PlatformTransactionManager transactionManager;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     private record PreExtractedRow(
@@ -38,7 +37,6 @@ public class ExtractionJobWorker {
     }
 
     @Scheduled(fixedDelayString = "${eventknow.worker.polling-delay:30000}")
-    @Transactional
     public void pollAndProcessJobs() {
         List<ExtractionJobEntity> jobs = extractionJobRepository.findTop10ByStatusInOrderByCreatedAtAsc(
                 List.of(ExtractionJobEntity.ExtractionStatus.PENDING, ExtractionJobEntity.ExtractionStatus.RETRYING));
@@ -101,7 +99,6 @@ public class ExtractionJobWorker {
 
             // 3. Extract java-side core fields
             List<PreExtractedRow> preExtractedRows = new ArrayList<>();
-            List<GeminiExtractionClient.LabelingInputItem> labelingItems = new ArrayList<>();
 
             for (ExcelParsingService.RowData row : rows) {
                 Map<String, String> rowData = row.data();
@@ -199,76 +196,15 @@ public class ExtractionJobWorker {
                         researchFieldsRaw,
                         dynamicAttributes);
                 preExtractedRows.add(preExt);
-
-                labelingItems.add(new GeminiExtractionClient.LabelingInputItem(
-                        row.rowNumber(),
-                        fullName,
-                        organization,
-                        position,
-                        academicTitleRaw,
-                        academicTitleNormalized,
-                        researchFieldsRaw));
             }
 
-            // 4. Call Gemini AI batch labeling with degradation support
-            GeminiExtractionClient.GeminiLabelingResponse response = null;
-            boolean aiSuccess = false;
-
-            if (!labelingItems.isEmpty()) {
-                try {
-                    List<GeminiExtractionClient.LabelingInputItem> sampledItems = new ArrayList<>(labelingItems);
-                    if (sampledItems.size() > 3) {
-                        Collections.shuffle(sampledItems, new Random(42));
-                        sampledItems = sampledItems.subList(0, 3);
-                    }
-                    response = geminiExtractionClient.labelBatch(
-                            sampledItems,
-                            job.getRawEvent().getSourceFileName(),
-                            job.getSourceSheetName(),
-                            job.getRowStart(),
-                            job.getRowEnd());
-                    aiSuccess = (response != null && response.labeledRows() != null);
-                } catch (Throwable t) {
-                    log.error(
-                            "AI Semantic labeling call failed on extraction job id: {}, triggering graceful degradation. Error: {}",
-                            job.getId(), t.getMessage());
-                }
-            }
-
-            // 5. Merge results (fallback to defaults if AI failed or missed a row)
-            Map<Integer, GeminiExtractionClient.LabeledRowResult> labelMap = new HashMap<>();
-            if (aiSuccess) {
-                for (GeminiExtractionClient.LabeledRowResult lRow : response.labeledRows()) {
-                    labelMap.put(lRow.rowNumber(), lRow);
-                }
-            }
-
-            List<GeminiExtractionClient.BatchRowResult> batchRowResults = new ArrayList<>();
-
+            // 4. Process each row in isolated REQUIRES_NEW transactions
             for (PreExtractedRow preExt : preExtractedRows) {
-                GeminiExtractionClient.LabeledRowResult label = labelMap.get(preExt.rowNumber());
-
-                List<String> researchDomains;
-                List<String> expertiseTags;
-                String attendeeRole;
-                boolean aiLabeledThisRow = aiSuccess && label != null;
-
-                if (aiLabeledThisRow) {
-                    researchDomains = label.researchDomains();
-                    expertiseTags = label.expertiseTags();
-                    attendeeRole = label.attendeeRole();
-                } else {
-                    // Graceful Degradation fallbacks
-                    researchDomains = List.of("KHAC");
-                    expertiseTags = Collections.emptyList();
-                    attendeeRole = "GUEST";
-                }
-
-                // Add ai_labeled boolean flag to dynamic attributes snapshot
                 List<GeminiExtractionClient.DynamicAttributeDto> finalDynAttrs = new ArrayList<>(
                         preExt.dynamicAttributes());
+                // Add default ai_labeled=false attribute
                 finalDynAttrs.add(
-                        new GeminiExtractionClient.DynamicAttributeDto("ai_labeled", String.valueOf(aiLabeledThisRow)));
+                        new GeminiExtractionClient.DynamicAttributeDto("ai_labeled", "false"));
 
                 // Build Extracted PERSON Entity
                 GeminiExtractionClient.ExtractedEntity personEntity = new GeminiExtractionClient.ExtractedEntity(
@@ -277,14 +213,14 @@ public class ExtractionJobWorker {
                         preExt.email(),
                         preExt.phone(),
                         preExt.academicTitleRaw(),
-                        attendeeRole,
+                        "GUEST", // Default role initially
                         preExt.position(),
                         preExt.organization(), // organizationTextRaw
                         null, // orgName
                         null, // emailDomain
                         preExt.researchFieldsRaw(),
-                        researchDomains,
-                        expertiseTags,
+                        Collections.emptyList(), // Empty research domains initially
+                        Collections.emptyList(), // Empty expertise tags initially
                         finalDynAttrs);
 
                 List<GeminiExtractionClient.ExtractedEntity> rowEntities = new ArrayList<>();
@@ -311,13 +247,24 @@ public class ExtractionJobWorker {
                     rowEntities.add(orgEntity);
                 }
 
-                batchRowResults.add(new GeminiExtractionClient.BatchRowResult(preExt.rowNumber(), rowEntities));
+                GeminiExtractionClient.BatchRowResult singleRowResult = new GeminiExtractionClient.BatchRowResult(
+                        preExt.rowNumber(), rowEntities);
+
+                try {
+                    new org.springframework.transaction.support.TransactionTemplate(
+                            transactionManager,
+                            new org.springframework.transaction.support.DefaultTransactionDefinition(
+                                    org.springframework.transaction.TransactionDefinition.PROPAGATION_REQUIRES_NEW))
+                            .executeWithoutResult(status -> {
+                                resultProcessor.processBatchRows(job.getRawEvent().getId(), List.of(singleRowResult));
+                            });
+                } catch (Throwable t) {
+                    log.error("Failed to process row {} under isolated transaction on job {}. Error: {}",
+                            preExt.rowNumber(), job.getId(), t.getMessage());
+                }
             }
 
-            // 6. Process DTO mappings and update DB
-            resultProcessor.processBatchRows(job.getRawEvent().getId(), batchRowResults);
-
-            // 7. Update status to DONE
+            // 5. Update status to DONE
             job.setStatus(ExtractionJobEntity.ExtractionStatus.DONE);
             job.setLastError(null);
             extractionJobRepository.save(job);

@@ -24,6 +24,7 @@ public class ExtractionResultProcessor {
     private final EventAttendanceRepository eventAttendanceRepository;
     private final RawEventRepository rawEventRepository;
     private final RuleBasedTitleNormalizer titleNormalizer;
+    private final jakarta.persistence.EntityManager entityManager;
 
     @Transactional
     public void processBatchRows(
@@ -33,6 +34,10 @@ public class ExtractionResultProcessor {
 
         RawEventEntity rawEvent = rawEventRepository.findById(rawEventId)
                 .orElseThrow(() -> new IllegalArgumentException("RawEvent not found for ID: " + rawEventId));
+
+        Map<String, OrganizationEntity> localResolvedOrgs = new HashMap<>(); // key: rawName, value: Entity
+        Map<String, AttendeeProfileEntity> localResolvedAttendees = new HashMap<>(); // key: email or
+                                                                                     // normalizedName_phone
 
         for (GeminiExtractionClient.BatchRowResult rowResult : batchRows) {
             int rowNum = rowResult.rowNumber();
@@ -54,25 +59,27 @@ public class ExtractionResultProcessor {
             }
 
             // 1. Process Organizations
-            Map<String, OrganizationEntity> localResolvedOrgs = new HashMap<>(); // key: rawName, value: Entity
             for (GeminiExtractionClient.ExtractedEntity orgEnt : orgEntities) {
                 String orgName = orgEnt.orgName();
                 if (orgName == null || orgName.trim().isEmpty()) {
                     continue;
                 }
 
-                OrganizationEntity orgEntity = resolveOrCreateOrganization(orgName.trim(), orgEnt.emailDomain(),
-                        orgEnt.dynamicAttributesMap());
+                String orgKey = orgName.trim().toLowerCase();
+                OrganizationEntity orgEntity = localResolvedOrgs.get(orgKey);
+                if (orgEntity == null) {
+                    orgEntity = resolveOrCreateOrganization(orgName.trim(), orgEnt.emailDomain(),
+                            orgEnt.dynamicAttributesMap());
+                }
+
                 if (orgEntity == null) {
                     continue;
                 }
-                localResolvedOrgs.put(orgName.trim().toLowerCase(), orgEntity);
+                localResolvedOrgs.put(orgKey, orgEntity);
 
                 // Create attendance record for the organization
                 createAttendanceRecord(rawEvent, null, orgEntity, rowNum, orgEnt.dynamicAttributesMap());
             }
-
-            Map<String, AttendeeProfileEntity> localResolvedAttendees = new HashMap<>();
 
             // 2. Process Persons
             for (GeminiExtractionClient.ExtractedEntity pEnt : personEntities) {
@@ -86,15 +93,17 @@ public class ExtractionResultProcessor {
                 String orgTextRaw = pEnt.organizationTextRaw();
                 if (orgTextRaw != null && !orgTextRaw.trim().isEmpty()) {
                     orgTextRaw = orgTextRaw.trim();
-                    // First try to match organization extracted on the same row
+                    // First try to match organization extracted on the same row / batch
                     linkedOrg = localResolvedOrgs.get(orgTextRaw.toLowerCase());
                     if (linkedOrg == null) {
                         // Query database or create
                         linkedOrg = resolveOrCreateOrganization(orgTextRaw, null, new HashMap<>());
+                        if (linkedOrg != null) {
+                            localResolvedOrgs.put(orgTextRaw.toLowerCase(), linkedOrg);
+                        }
                     }
                 } else if (!localResolvedOrgs.isEmpty()) {
-                    // Fallback to first organization extracted on same row if organizationTextRaw
-                    // was omitted
+                    // Fallback to first organization extracted in batch
                     linkedOrg = localResolvedOrgs.values().iterator().next();
                 }
 
@@ -104,10 +113,27 @@ public class ExtractionResultProcessor {
                     personEntity = localResolvedAttendees.get(email.trim().toLowerCase());
                 }
 
+                // Also support local cache lookup by (normalizedName + phone) for blank email
+                // attendees!
+                if (personEntity == null && (email == null || email.trim().isEmpty())) {
+                    String normName = normalizeString(fullName);
+                    String phone = pEnt.phone();
+                    if (phone != null && !phone.trim().isEmpty()) {
+                        personEntity = localResolvedAttendees.get(normName + "_" + phone.trim());
+                    }
+                }
+
                 if (personEntity == null) {
                     personEntity = resolveOrCreateAttendee(pEnt, linkedOrg);
+
                     if (email != null && !email.trim().isEmpty()) {
                         localResolvedAttendees.put(email.trim().toLowerCase(), personEntity);
+                    } else {
+                        String normName = normalizeString(fullName);
+                        String phone = pEnt.phone();
+                        if (phone != null && !phone.trim().isEmpty()) {
+                            localResolvedAttendees.put(normName + "_" + phone.trim(), personEntity);
+                        }
                     }
                 }
 
@@ -207,6 +233,12 @@ public class ExtractionResultProcessor {
 
         if (email != null && !email.trim().isEmpty()) {
             matched = attendeeProfileRepository.findByEmailIgnoreCaseAndIsActiveTrue(email.trim());
+        } else {
+            String normalizedName = normalizeString(pEnt.fullName());
+            String phone = (pEnt.phone() != null) ? pEnt.phone().trim() : null;
+            if (phone != null && !phone.isEmpty()) {
+                matched = attendeeProfileRepository.findByNormalizedNameAndPhoneAndIsActiveTrue(normalizedName, phone);
+            }
         }
 
         if (matched.isPresent()) {
@@ -234,6 +266,12 @@ public class ExtractionResultProcessor {
             normalizedTitles = titleNormalizer.normalize(pEnt.academicTitleRaw());
         }
 
+        // Manage detached organization if it exists in the REQUIRES_NEW session
+        OrganizationEntity managedOrg = null;
+        if (linkedOrg != null) {
+            managedOrg = entityManager.merge(linkedOrg);
+        }
+
         // Create new profile
         AttendeeProfileEntity newPerson = AttendeeProfileEntity.builder()
                 .fullName(pEnt.fullName().trim())
@@ -244,13 +282,14 @@ public class ExtractionResultProcessor {
                 .academicTitleNormalized(normalizedTitles)
                 .attendeeRole(finalRole)
                 .position(pEnt.position() != null ? pEnt.position().trim() : null)
-                .organization(linkedOrg)
+                .organization(managedOrg)
                 .organizationTextRaw(pEnt.organizationTextRaw())
                 .researchFieldsRaw(
                         pEnt.researchFieldsRaw() != null ? pEnt.researchFieldsRaw() : Collections.emptyList())
                 .researchDomains(pEnt.researchDomains() != null ? pEnt.researchDomains() : Collections.emptyList())
                 .expertiseTags(pEnt.expertiseTags() != null ? pEnt.expertiseTags() : Collections.emptyList())
                 .followUpStatus(AttendeeProfileEntity.FollowUpStatus.CHUA_LIEN_HE)
+                .aiLabeled(false) // First core ingestion path always sets to false (enrichment is async)
                 .dynamicAttributes(pEnt.dynamicAttributes() != null ? pEnt.dynamicAttributesMap() : new HashMap<>())
                 .isActive(true)
                 .build();

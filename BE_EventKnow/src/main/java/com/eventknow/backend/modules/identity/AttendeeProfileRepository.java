@@ -19,6 +19,11 @@ public interface AttendeeProfileRepository extends JpaRepository<AttendeeProfile
 
         Optional<AttendeeProfileEntity> findByEmailIgnoreCaseAndIsActiveTrue(String email);
 
+        Optional<AttendeeProfileEntity> findByNormalizedNameAndPhoneAndIsActiveTrue(String normalizedName,
+                        String phone);
+
+        List<AttendeeProfileEntity> findTop30ByAiLabeledFalseAndIsActiveTrue();
+
         @Query(value = "SELECT a.id AS idA, a.full_name AS nameA, b.id AS idB, b.full_name AS nameB, " +
                         "COALESCE( " +
                         "    CASE WHEN a.email = b.email OR a.phone = b.phone THEN 1.0 END, " +

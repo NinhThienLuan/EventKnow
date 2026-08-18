@@ -18,9 +18,26 @@ public class ExcelHeaderMapper {
 
     // Normalized matches templates (using case-insensitive lowercase matching after
     // removing accents)
+    private static final Map<String, List<String>> FIELD_EXACT_TERMS = new LinkedHashMap<>();
     private static final Map<String, List<Pattern>> FIELD_PATTERNS = new LinkedHashMap<>();
 
     static {
+        FIELD_EXACT_TERMS.put("fullName", List.of("ho ten", "ho va ten", "ten dai bieu", "name", "full name",
+                "ho ten dai bieu", "nguoi dai dien", "your name"));
+        FIELD_EXACT_TERMS.put("lastNameSplit", List.of("ho dem", "ho va dem", "ho", "last name"));
+        FIELD_EXACT_TERMS.put("firstNameSplit", List.of("ten", "first name"));
+        FIELD_EXACT_TERMS.put("email",
+                List.of("email", "e-mail", "thu dien tu", "dia chi email", "your email", "email lien he"));
+        FIELD_EXACT_TERMS.put("phone", List.of("dien thoai", "sdt", "so dien thoai", "phone", "tel", "telephone",
+                "dtdd", "so dtdd", "dien thoai di dong", "so dt", "phone number", "your phone number"));
+        FIELD_EXACT_TERMS.put("organization",
+                List.of("don vi", "co quan", "cong ty", "cty", "organization", "company", "noi cong tac", "cong tac",
+                        "ten don vi", "ten cong ty", "don vi cong tac", "co quan cong tac"));
+        FIELD_EXACT_TERMS.put("position", List.of("chuc vu", "chuc danh", "vi tri", "position", "title"));
+        FIELD_EXACT_TERMS.put("academicTitle", List.of("hoc ham", "hoc vi", "academic title", "degree"));
+        FIELD_EXACT_TERMS.put("researchFields",
+                List.of("linh vuc", "chuyen mon", "chuyen nganh", "nghien cuu", "expertise", "research"));
+
         FIELD_PATTERNS.put("fullName", List.of(
                 Pattern.compile(
                         ".*(ho\\s+ten|ho\\s+va\\s+ten|ten\\s+dai\\s+bieu|ho\\s+va\\s+dem|name|full\\s+name).*")));
@@ -68,37 +85,78 @@ public class ExcelHeaderMapper {
             Map<Integer, String> unmappedHeaders = new LinkedHashMap<>();
             int maxCol = row.getLastCellNum();
 
+            // Store clean headers
+            Map<Integer, String> colIndexToText = new HashMap<>();
+            Map<Integer, String> colIndexToNormalized = new HashMap<>();
             for (int c = 0; c < maxCol; c++) {
                 Cell cell = row.getCell(c);
-                if (cell == null) {
-                    continue;
+                if (cell != null) {
+                    String headerText = dataFormatter.formatCellValue(cell).trim();
+                    if (!headerText.isEmpty()) {
+                        colIndexToText.put(c, headerText);
+                        colIndexToNormalized.put(c, normalizeHeader(headerText));
+                    }
                 }
+            }
 
-                String headerText = dataFormatter.formatCellValue(cell).trim();
-                if (headerText.isEmpty()) {
-                    continue;
+            Set<Integer> mappedCols = new HashSet<>();
+
+            // Step 1: Exact matches (priority)
+            for (Map.Entry<String, List<String>> entry : FIELD_EXACT_TERMS.entrySet()) {
+                String field = entry.getKey();
+                List<Integer> matchedCols = new ArrayList<>();
+                for (Map.Entry<Integer, String> colEntry : colIndexToNormalized.entrySet()) {
+                    int c = colEntry.getKey();
+                    if (mappedCols.contains(c))
+                        continue;
+                    if (entry.getValue().contains(colEntry.getValue())) {
+                        matchedCols.add(c);
+                    }
                 }
+                if (matchedCols.size() == 1) {
+                    int assignedCol = matchedCols.get(0);
+                    standardMapping.put(field, assignedCol);
+                    mappedCols.add(assignedCol);
+                    score += 2; // Exact matches score higher
+                }
+            }
 
-                String normalizedText = removeAccents(headerText.toLowerCase(Locale.ROOT));
-                boolean matched = false;
+            // Step 2: Substring matches (only for fields not yet mapped)
+            for (Map.Entry<String, List<Pattern>> entry : FIELD_PATTERNS.entrySet()) {
+                String field = entry.getKey();
+                if (standardMapping.containsKey(field))
+                    continue;
 
-                for (Map.Entry<String, List<Pattern>> entry : FIELD_PATTERNS.entrySet()) {
-                    String field = entry.getKey();
+                List<Integer> matchedCols = new ArrayList<>();
+                for (Map.Entry<Integer, String> colEntry : colIndexToNormalized.entrySet()) {
+                    int c = colEntry.getKey();
+                    if (mappedCols.contains(c))
+                        continue;
+
                     for (Pattern pattern : entry.getValue()) {
-                        if (pattern.matcher(normalizedText).matches()) {
-                            standardMapping.put(field, c);
-                            score++;
-                            matched = true;
+                        if (pattern.matcher(colEntry.getValue()).matches()) {
+                            matchedCols.add(c);
                             break;
                         }
                     }
-                    if (matched) {
-                        break;
-                    }
                 }
 
-                if (!matched) {
-                    unmappedHeaders.put(c, headerText);
+                // Ambiguity Guard check
+                if (matchedCols.size() == 1) {
+                    int assignedCol = matchedCols.get(0);
+                    standardMapping.put(field, assignedCol);
+                    mappedCols.add(assignedCol);
+                    score++;
+                } else if (matchedCols.size() > 1) {
+                    // Ambiguity Guard: multiple matching columns of same regex, do not assign field
+                }
+            }
+
+            // Gather unmapped columns
+            for (Map.Entry<Integer, String> colEntry : colIndexToText.entrySet()) {
+                int c = colEntry.getKey();
+                if (!mappedCols.contains(c)) {
+                    unmappedHeaders.put(c, colEntry.getValue());
                 }
             }
 
@@ -131,12 +189,22 @@ public class ExcelHeaderMapper {
         return new HeaderMappingResult(bestHeaderRowIndex, bestStandardMapping, bestUnmappedHeaders);
     }
 
-    private String removeAccents(String src) {
-        if (src == null) {
+    public static String normalizeHeader(String header) {
+        if (header == null) {
             return "";
         }
-        String normalized = Normalizer.normalize(src, Normalizer.Form.NFD);
-        Pattern pattern = Pattern.compile("\\p{InCombiningDiacriticalMarks}+");
-        return pattern.matcher(normalized).replaceAll("").replace('đ', 'd').replace('Đ', 'D');
+
+        // 1. Lowercase and trim
+        String temp = header.trim().toLowerCase();
+
+        // 2. Remove accents/combining diacritical marks
+        temp = java.text.Normalizer.normalize(temp, java.text.Normalizer.Form.NFD);
+        temp = temp.replaceAll("\\p{M}", "");
+
+        // 3. Replace 'đ' and 'Đ' -> 'd'
+        temp = temp.replace('đ', 'd').replace('Đ', 'd');
+
+        // 4. Normalize whitespaces and replace special characters with spaces
+        return temp.replaceAll("[^a-z0-9\\s]", " ").replaceAll("\\s+", " ").trim();
     }
 }

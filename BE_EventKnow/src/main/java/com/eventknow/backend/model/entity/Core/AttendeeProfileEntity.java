@@ -71,6 +71,10 @@ public class AttendeeProfileEntity extends BaseEntity {
     @Builder.Default
     private FollowUpStatus followUpStatus = FollowUpStatus.CHUA_LIEN_HE;
 
+    @Column(name = "ai_labeled", nullable = false)
+    @Builder.Default
+    private boolean aiLabeled = false;
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "dynamic_attributes", nullable = false, columnDefinition = "jsonb")
     private Map<String, Object> dynamicAttributes;
