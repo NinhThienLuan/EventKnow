@@ -72,3 +72,46 @@ export interface SuggestionCard {
   sourcesCount: number;
   featured?: boolean;
 }
+
+export interface DashboardSummary {
+  totalEvents: number;
+  totalAttendees: number;
+  uniqueOrganizations: number;
+  totalReports: number;
+  showUpRate: number | null;
+  researchDomainBreakdown: Record<string, number>;
+  academicTitleBreakdown: Record<string, number>;
+  attendeeRoleBreakdown: Record<string, number>;
+  followUpFunnel: Record<string, number>;
+}
+
+export interface MonthlyTrend {
+  month: string;
+  eventCount: number;
+  attendeeCount: number;
+}
+
+export interface DepartmentStat {
+  department: string;
+  count: number;
+}
+
+export interface DataHealth {
+  deletedInSourceCount: number;
+  unmappedDepartmentCount: number;
+  failedExtractionJobCount: number;
+}
+
+export interface DashboardAggregate {
+  summary: DashboardSummary;
+  monthlyTrend: MonthlyTrend[];
+  departmentDistribution: DepartmentStat[];
+  dataHealth: DataHealth;
+}
+
+export interface TopOrganization {
+  organizationId: string;
+  orgName: string;
+  attendeeCount: number;
+}
+

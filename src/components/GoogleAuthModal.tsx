@@ -11,6 +11,7 @@ export interface UserProfile {
   loginTime?: string;
   scopes?: string[];
   accessToken?: string;
+  role?: string;
 }
 
 interface GoogleAuthModalProps {
@@ -44,6 +45,28 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
   if (!isOpen) return null;
 
+  const exchangeTokenWithBackend = async (accessToken: string): Promise<any | null> => {
+    try {
+      const response = await fetch('/api/auth/google/callback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ accessToken }),
+      });
+
+      if (!response.ok) {
+        const errJson = await response.json().catch(() => ({}));
+        const errMsg = errJson.error || `HTTP ${response.status}: ${response.statusText}`;
+        setAuthError(`Lỗi trao đổi token với Backend: ${errMsg}`);
+        return null;
+      }
+
+      return response.json();
+    } catch (err: any) {
+      setAuthError(`Lỗi kết nối Backend: ${err.message || err}`);
+      return null;
+    }
+  };
+
   const handleRealGoogleOAuth = async () => {
     setIsLoading(true);
     setAuthError(null);
@@ -51,14 +74,20 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     try {
       const fbResult = await signInWithGoogleFirebase();
       if (fbResult?.accessToken) {
+        const backendUser = await exchangeTokenWithBackend(fbResult.accessToken);
+        if (!backendUser) {
+          setIsLoading(false);
+          return;
+        }
         setIsLoading(false);
         const googleUser: UserProfile = {
-          name: fbResult.user.displayName || user.name || 'Luân Ninh',
-          email: fbResult.user.email || user.email || 'luanninh2005@gmail.com',
-          picture: fbResult.user.photoURL || user.picture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+          name: backendUser.name || fbResult.user.displayName || user.name || 'Luân Ninh',
+          email: backendUser.email || fbResult.user.email || user.email || 'luanninh2005@gmail.com',
+          picture: backendUser.picture || fbResult.user.photoURL || user.picture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
           isLoggedIn: true,
           loginTime: new Date().toLocaleTimeString('vi-VN'),
           accessToken: fbResult.accessToken,
+          role: backendUser.role,
           scopes: [
             'https://www.googleapis.com/auth/userinfo.profile',
             'https://www.googleapis.com/auth/userinfo.email',
@@ -74,16 +103,20 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
 
     requestGoogleAccessToken({
       scope: 'https://www.googleapis.com/auth/userinfo.profile https://www.googleapis.com/auth/userinfo.email https://www.googleapis.com/auth/drive.file',
-      callback: (resp) => {
-        setIsLoading(false);
+      callback: async (resp) => {
         if (resp.access_token) {
+          const backendUser = await exchangeTokenWithBackend(resp.access_token);
+          setIsLoading(false);
+          if (!backendUser) return;
+
           const googleUser: UserProfile = {
-            name: user.name || 'Luân Ninh',
-            email: user.email || 'luanninh2005@gmail.com',
-            picture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+            name: backendUser.name || user.name || 'Luân Ninh',
+            email: backendUser.email || user.email || 'luanninh2005@gmail.com',
+            picture: backendUser.picture || user.picture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
             isLoggedIn: true,
             loginTime: new Date().toLocaleTimeString('vi-VN'),
             accessToken: resp.access_token,
+            role: backendUser.role,
             scopes: [
               'https://www.googleapis.com/auth/userinfo.profile',
               'https://www.googleapis.com/auth/userinfo.email',
@@ -92,6 +125,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
           };
           onLogin(googleUser);
         } else {
+          setIsLoading(false);
           const errDetail = resp.error?.message || resp.error || 'Xác thực Google OAuth không thành công';
           setAuthError(`Lỗi OAuth: ${errDetail}. Quý khách có thể dán Google OAuth Access Token trực tiếp bên dưới.`);
           setShowManualInput(true);
@@ -100,15 +134,21 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     });
   };
 
-  const handleApplyManualToken = () => {
+  const handleApplyManualToken = async () => {
     if (!manualTokenInput.trim()) return;
+    setIsLoading(true);
+    const backendUser = await exchangeTokenWithBackend(manualTokenInput.trim());
+    setIsLoading(false);
+    if (!backendUser) return;
+
     const googleUser: UserProfile = {
-      name: user.name || 'Luân Ninh',
-      email: user.email || 'luanninh2005@gmail.com',
-      picture: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
+      name: backendUser.name || user.name || 'Luân Ninh',
+      email: backendUser.email || user.email || 'luanninh2005@gmail.com',
+      picture: backendUser.picture || user.picture || 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?w=150&auto=format&fit=crop&q=80',
       isLoggedIn: true,
       loginTime: new Date().toLocaleTimeString('vi-VN'),
       accessToken: manualTokenInput.trim(),
+      role: backendUser.role,
       scopes: [
         'https://www.googleapis.com/auth/userinfo.profile',
         'https://www.googleapis.com/auth/userinfo.email',
@@ -117,6 +157,14 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
     };
     onLogin(googleUser);
     setAuthError(null);
+  };
+
+  const handleLogout = async () => {
+    try {
+      await fetch('/api/auth/logout', { method: 'POST' }).catch(() => { });
+    } finally {
+      onLogout();
+    }
   };
 
   return (
@@ -217,7 +265,7 @@ export const GoogleAuthModal: React.FC<GoogleAuthModalProps> = ({
               {/* Actions */}
               <div className="flex items-center justify-between pt-2">
                 <button
-                  onClick={onLogout}
+                  onClick={handleLogout}
                   className="flex items-center gap-1.5 px-4 py-2 text-xs font-bold text-red-600 hover:bg-red-50 rounded-lg border border-red-200 transition-colors cursor-pointer"
                 >
                   <LogOut className="w-3.5 h-3.5" />

@@ -6,3 +6,9 @@ coverage/
 *.log
 .env*
 !.env.example
+docs
+.agents
+.idea
+test
+application-dev.properties
+BE_EventKnow/src/main/resources/application-dev.properties

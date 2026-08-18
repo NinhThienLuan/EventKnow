@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Users,
   Building2,
@@ -32,27 +32,36 @@ import {
   AttendeeProfile,
   OrganizationProfile
 } from '../data/partnerData';
+import {
+  fetchAttendees,
+  fetchAttendeeDetail,
+  fetchOrganizations,
+  fetchOrganizationDetail,
+  updateAttendeeStatus
+} from '../lib/identityApi';
 
 interface PartnersMgmtViewProps {
   language: 'VN' | 'EN';
   onNavigateToMergeSplit?: () => void;
+  isAdmin?: boolean;
 }
 
 export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
   language,
-  onNavigateToMergeSplit
+  onNavigateToMergeSplit,
+  isAdmin = false
 }) => {
   const [activeTab, setActiveTab] = useState<'INDIVIDUALS' | 'ORGANIZATIONS'>('INDIVIDUALS');
 
   // Individual Filters State
-  const [attendees, setAttendees] = useState<AttendeeProfile[]>(MOCK_ATTENDEE_PROFILES);
+  const [attendees, setAttendees] = useState<AttendeeProfile[]>([]);
   const [indSearchQuery, setIndSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'SPEAKER' | 'EXPERT' | 'GUEST' | 'SPONSOR'>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'CHUA_LIEN_HE' | 'DA_LIEN_HE' | 'DANG_HOP_TAC' | 'TU_CHOI'>('ALL');
   const [academicFilter, setAcademicFilter] = useState<string>('ALL');
 
   // Organization Filters State
-  const [organizations, setOrganizations] = useState<OrganizationProfile[]>(MOCK_ORGANIZATION_PROFILES);
+  const [organizations, setOrganizations] = useState<OrganizationProfile[]>([]);
   const [orgSearchQuery, setOrgSearchQuery] = useState('');
   const [orgCategoryFilter, setOrgCategoryFilter] = useState<string>('ALL');
 
@@ -64,17 +73,85 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
   const [newNoteText, setNewNoteText] = useState('');
 
   // -----------------------
+  // API Fetch Effects
+  // -----------------------
+  useEffect(() => {
+    const loadAttendees = async () => {
+      try {
+        const data = await fetchAttendees({
+          search: indSearchQuery,
+          role: roleFilter === 'ALL' ? undefined : roleFilter,
+          status: statusFilter === 'ALL' ? undefined : statusFilter,
+          academicTitle: academicFilter === 'ALL' ? undefined : academicFilter
+        });
+        setAttendees(data);
+      } catch (err) {
+        console.error('Failed to load attendees:', err);
+      }
+    };
+    loadAttendees();
+  }, [indSearchQuery, roleFilter, statusFilter, academicFilter]);
+
+  useEffect(() => {
+    const loadOrgs = async () => {
+      try {
+        const data = await fetchOrganizations({
+          search: orgSearchQuery,
+          category: orgCategoryFilter === 'ALL' ? undefined : orgCategoryFilter
+        });
+        setOrganizations(data);
+      } catch (err) {
+        console.error('Failed to load organizations:', err);
+      }
+    };
+    loadOrgs();
+  }, [orgSearchQuery, orgCategoryFilter]);
+
+  // -----------------------
   // Handlers for Attendees
   // -----------------------
-  const handleUpdateAttendeeStatus = (
+  const handleSelectAttendee = async (attItem: AttendeeProfile) => {
+    setSelectedAttendee(attItem);
+    try {
+      const detail = await fetchAttendeeDetail(attItem.id);
+      setSelectedAttendee(detail);
+      // Update entry in list to verify sync or redirects
+      setAttendees((prev) => prev.map((a) => (a.id === attItem.id ? detail : a)));
+    } catch (e) {
+      console.error("Failed to load details for attendee", e);
+    }
+  };
+
+  const handleSelectOrg = async (orgItem: OrganizationProfile) => {
+    setSelectedOrg(orgItem);
+    try {
+      const detail = await fetchOrganizationDetail(orgItem.id);
+      setSelectedOrg(detail);
+      setOrganizations((prev) => prev.map((o) => (o.id === orgItem.id ? detail : o)));
+    } catch (e) {
+      console.error("Failed to load details for organization", e);
+    }
+  };
+
+  const handleUpdateAttendeeStatus = async (
     id: string,
     newStatus: 'CHUA_LIEN_HE' | 'DA_LIEN_HE' | 'DANG_HOP_TAC' | 'TU_CHOI'
   ) => {
-    setAttendees((prev) =>
-      prev.map((a) => (a.id === id ? { ...a, followUpStatus: newStatus } : a))
-    );
-    if (selectedAttendee && selectedAttendee.id === id) {
-      setSelectedAttendee((prev) => (prev ? { ...prev, followUpStatus: newStatus } : null));
+    try {
+      // Map 'DANG_HOP_TAC' fallback or convert as backend only has CHUA_LIEN_HE, DA_LIEN_HE, TU_CHOI
+      let statusToSend = newStatus;
+      if (newStatus === 'DANG_HOP_TAC') {
+        statusToSend = 'DA_LIEN_HE'; // map to most relevant backend equivalent
+      }
+      const updated = await updateAttendeeStatus(id, statusToSend);
+      setAttendees((prev) =>
+        prev.map((a) => (a.id === id ? { ...a, followUpStatus: updated.followUpStatus } : a))
+      );
+      if (selectedAttendee && selectedAttendee.id === id) {
+        setSelectedAttendee((prev) => (prev ? { ...prev, followUpStatus: updated.followUpStatus } : null));
+      }
+    } catch (err) {
+      console.error('Failed to update status on backend:', err);
     }
   };
 
@@ -87,7 +164,8 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
       createdAt: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN').slice(0, 5)
     };
 
-    const updatedNotes = [newNote, ...selectedAttendee.notes];
+    const notesList = selectedAttendee.notes || [];
+    const updatedNotes = [newNote, ...notesList];
     setAttendees((prev) =>
       prev.map((a) => (a.id === selectedAttendee.id ? { ...a, notes: updatedNotes } : a))
     );
@@ -107,7 +185,8 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
       createdAt: new Date().toLocaleDateString('vi-VN') + ' ' + new Date().toLocaleTimeString('vi-VN').slice(0, 5)
     };
 
-    const updatedNotes = [newNote, ...selectedOrg.notes];
+    const notesList = selectedOrg.notes || [];
+    const updatedNotes = [newNote, ...notesList];
     setOrganizations((prev) =>
       prev.map((o) => (o.id === selectedOrg.id ? { ...o, notes: updatedNotes } : o))
     );
@@ -116,38 +195,10 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
   };
 
   // -----------------------
-  // Filter Logic
+  // Filter Logic (Bypassed since backend does filtering)
   // -----------------------
-  const filteredAttendees = attendees.filter((att) => {
-    const q = indSearchQuery.toLowerCase();
-    const matchesSearch =
-      att.fullName.toLowerCase().includes(q) ||
-      att.organizationName.toLowerCase().includes(q) ||
-      att.email.toLowerCase().includes(q) ||
-      att.academicTitleRaw.toLowerCase().includes(q) ||
-      att.sourceSheets.some((s) => s.eventName.toLowerCase().includes(q) || s.fileName.toLowerCase().includes(q));
-
-    const matchesRole = roleFilter === 'ALL' || att.attendeeRole === roleFilter;
-    const matchesStatus = statusFilter === 'ALL' || att.followUpStatus === statusFilter;
-    const matchesAcademic =
-      academicFilter === 'ALL' ||
-      att.academicTitleNormalized.includes(academicFilter as any);
-
-    return matchesSearch && matchesRole && matchesStatus && matchesAcademic;
-  });
-
-  const filteredOrgs = organizations.filter((org) => {
-    const q = orgSearchQuery.toLowerCase();
-    const matchesSearch =
-      org.orgName.toLowerCase().includes(q) ||
-      org.normalizedName.includes(q) ||
-      org.emailDomain.toLowerCase().includes(q) ||
-      org.address.toLowerCase().includes(q);
-
-    const matchesCategory = orgCategoryFilter === 'ALL' || org.category === orgCategoryFilter;
-
-    return matchesSearch && matchesCategory;
-  });
+  const filteredAttendees = attendees;
+  const filteredOrgs = organizations;
 
   // Helpers
   const renderRoleBadge = (role: AttendeeProfile['attendeeRole']) => {
@@ -287,11 +338,10 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
         <div className="flex items-center gap-2 bg-[#EEF1F4] p-1 rounded-lg">
           <button
             onClick={() => setActiveTab('INDIVIDUALS')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
-              activeTab === 'INDIVIDUALS'
-                ? 'bg-white text-[#00344c] shadow-2xs border border-[#DCE1E6]'
-                : 'text-[#72787e] hover:text-[#0f1d28]'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${activeTab === 'INDIVIDUALS'
+              ? 'bg-white text-[#00344c] shadow-2xs border border-[#DCE1E6]'
+              : 'text-[#72787e] hover:text-[#0f1d28]'
+              }`}
           >
             <Users className="w-4 h-4 text-[#1b4b66]" />
             <span>{language === 'VN' ? 'Cá nhân (Khách mời, Diễn giả, Đối tác)' : 'Individuals & Speakers'}</span>
@@ -302,11 +352,10 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
 
           <button
             onClick={() => setActiveTab('ORGANIZATIONS')}
-            className={`flex items-center gap-2 px-4 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${
-              activeTab === 'ORGANIZATIONS'
-                ? 'bg-white text-[#00344c] shadow-2xs border border-[#DCE1E6]'
-                : 'text-[#72787e] hover:text-[#0f1d28]'
-            }`}
+            className={`flex items-center gap-2 px-4 py-2 rounded-md text-xs font-bold transition-all cursor-pointer ${activeTab === 'ORGANIZATIONS'
+              ? 'bg-white text-[#00344c] shadow-2xs border border-[#DCE1E6]'
+              : 'text-[#72787e] hover:text-[#0f1d28]'
+              }`}
           >
             <Building2 className="w-4 h-4 text-[#5B4B8A]" />
             <span>{language === 'VN' ? 'Tổ chức & Doanh nghiệp' : 'Organizations'}</span>
@@ -317,7 +366,7 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
         </div>
 
         {/* Action button to Merge/Split */}
-        {onNavigateToMergeSplit && (
+        {isAdmin && onNavigateToMergeSplit && (
           <button
             onClick={onNavigateToMergeSplit}
             className="flex items-center justify-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#00344c] bg-[#EEF1F4] hover:bg-[#DCE1E6] rounded-lg border border-[#DCE1E6] transition-all cursor-pointer shrink-0"
@@ -361,51 +410,46 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
 
                 <button
                   onClick={() => setRoleFilter('ALL')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                    roleFilter === 'ALL'
-                      ? 'bg-[#00344c] text-white shadow-2xs'
-                      : 'bg-[#EEF1F4] text-[#41474d] hover:bg-gray-200'
-                  }`}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${roleFilter === 'ALL'
+                    ? 'bg-[#00344c] text-white shadow-2xs'
+                    : 'bg-[#EEF1F4] text-[#41474d] hover:bg-gray-200'
+                    }`}
                 >
                   {language === 'VN' ? 'Tất cả' : 'All'}
                 </button>
                 <button
                   onClick={() => setRoleFilter('SPEAKER')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                    roleFilter === 'SPEAKER'
-                      ? 'bg-purple-700 text-white shadow-2xs'
-                      : 'bg-purple-50 text-purple-800 hover:bg-purple-100'
-                  }`}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${roleFilter === 'SPEAKER'
+                    ? 'bg-purple-700 text-white shadow-2xs'
+                    : 'bg-purple-50 text-purple-800 hover:bg-purple-100'
+                    }`}
                 >
                   {language === 'VN' ? 'Diễn giả' : 'Speakers'}
                 </button>
                 <button
                   onClick={() => setRoleFilter('EXPERT')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                    roleFilter === 'EXPERT'
-                      ? 'bg-blue-700 text-white shadow-2xs'
-                      : 'bg-blue-50 text-blue-800 hover:bg-blue-100'
-                  }`}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${roleFilter === 'EXPERT'
+                    ? 'bg-blue-700 text-white shadow-2xs'
+                    : 'bg-blue-50 text-blue-800 hover:bg-blue-100'
+                    }`}
                 >
                   {language === 'VN' ? 'Chuyên gia' : 'Experts'}
                 </button>
                 <button
                   onClick={() => setRoleFilter('SPONSOR')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                    roleFilter === 'SPONSOR'
-                      ? 'bg-amber-700 text-white shadow-2xs'
-                      : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
-                  }`}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${roleFilter === 'SPONSOR'
+                    ? 'bg-amber-700 text-white shadow-2xs'
+                    : 'bg-amber-50 text-amber-800 hover:bg-amber-100'
+                    }`}
                 >
                   {language === 'VN' ? 'Đối tác / Tài trợ' : 'Sponsors'}
                 </button>
                 <button
                   onClick={() => setRoleFilter('GUEST')}
-                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${
-                    roleFilter === 'GUEST'
-                      ? 'bg-slate-700 text-white shadow-2xs'
-                      : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
-                  }`}
+                  className={`px-2.5 py-1 rounded-md text-xs font-semibold transition-all cursor-pointer ${roleFilter === 'GUEST'
+                    ? 'bg-slate-700 text-white shadow-2xs'
+                    : 'bg-slate-100 text-slate-800 hover:bg-slate-200'
+                    }`}
                 >
                   {language === 'VN' ? 'Khách mời' : 'Guests'}
                 </button>
@@ -459,7 +503,7 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
             {filteredAttendees.map((att) => (
               <div
                 key={att.id}
-                onClick={() => setSelectedAttendee(att)}
+                onClick={() => handleSelectAttendee(att)}
                 className="bg-white border border-[#DCE1E6] rounded-xl p-5 shadow-2xs hover:shadow-md hover:border-[#1b4b66] transition-all cursor-pointer flex flex-col justify-between space-y-4 group relative"
               >
                 <div className="space-y-3">
@@ -597,7 +641,7 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
             {filteredOrgs.map((org) => (
               <div
                 key={org.id}
-                onClick={() => setSelectedOrg(org)}
+                onClick={() => handleSelectOrg(org)}
                 className="bg-white border border-[#DCE1E6] rounded-xl p-5 shadow-2xs hover:shadow-md hover:border-[#1b4b66] transition-all cursor-pointer flex flex-col justify-between space-y-4 group"
               >
                 <div className="space-y-3">
