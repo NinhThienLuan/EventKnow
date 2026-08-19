@@ -706,4 +706,37 @@ public class IngestServiceIntegrationTest {
                         fail(e.getMessage());
                 }
         }
+
+        @Test
+        public void testOptimizedNamingRules() {
+                // Let's test the clean naming helper method
+                assertEquals("Seminar AI", ingestService.cleanEventTextName("01. Seminar AI_v2.xlsx"));
+                assertEquals("AI for SMEs", ingestService.cleanEventTextName("Raw data - AI for SMEs.xlsx"));
+                assertEquals("TechFest", ingestService.cleanEventTextName("TechFest_final.xlsx"));
+
+                // Scenario A: Count == 1, generic name -> expects timestamp fallback
+                var metaA = ingestService.parseEventMetaOptimized("Raw data .xlsx", "Sheet1", 1, 0);
+                assertTrue(metaA.name().startsWith("Event_"));
+
+                // Scenario B: Count == 1, non-generic file -> expects cleaned file name
+                var metaB = ingestService.parseEventMetaOptimized("01. TechFest.xlsx", "Sheet1", 1, 0);
+                assertEquals("TechFest", metaB.name());
+
+                // Scenario C: Count >= 2, both generic -> expects fileBase - Phần index
+                var metaC = ingestService.parseEventMetaOptimized("Raw data.xlsx", "Sheet1", 2, 1);
+                assertTrue(metaC.name().contains("Phần 2"));
+
+                // Scenario D: Count >= 2, both non-generic -> expects concatenated File - Sheet
+                var metaD = ingestService.parseEventMetaOptimized("TechFest.xlsx", "TechFest Seminar", 2, 0);
+                assertEquals("TechFest - TechFest Seminar", metaD.name());
+
+                // Scenario E: Count >= 2, file generic, sheet non-generic -> expects sheet
+                var metaE = ingestService.parseEventMetaOptimized("Raw data.xlsx", "TechFest Seminar", 2, 0);
+                assertEquals("TechFest Seminar", metaE.name());
+
+                // Scenario F: Count >= 2, file non-generic, sheet generic -> expects file -
+                // Phần index
+                var metaF = ingestService.parseEventMetaOptimized("TechFest.xlsx", "Sheet1", 2, 0);
+                assertEquals("TechFest - Phần 1", metaF.name());
+        }
 }

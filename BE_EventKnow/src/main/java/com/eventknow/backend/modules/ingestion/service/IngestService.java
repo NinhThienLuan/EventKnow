@@ -104,18 +104,24 @@ public class IngestService {
         UUID returnedRawEventId = null;
         int totalJobsCreated = 0;
 
-        for (ExcelParsingService.SheetData sheet : sheets) {
-            List<ExcelParsingService.RowData> rows = sheet.rows();
-            if (rows.isEmpty()) {
-                continue;
+        List<ExcelParsingService.SheetData> activeSheets = new java.util.ArrayList<>();
+        for (ExcelParsingService.SheetData s : sheets) {
+            if (s.rows() != null && !s.rows().isEmpty()) {
+                activeSheets.add(s);
             }
+        }
+        int activeCount = activeSheets.size();
+        int activeIdx = 0;
+
+        for (ExcelParsingService.SheetData sheet : activeSheets) {
+            List<ExcelParsingService.RowData> rows = sheet.rows();
 
             // Resolve sheet event meta
             String sheetEventName = manualEventName;
             LocalDate sheetEventDate = manualEventDate;
             boolean isDateFallback = (manualEventDate == null);
             if (sheetEventName == null || sheetEventName.trim().isEmpty() || sheetEventDate == null) {
-                EventMeta meta = parseEventMeta(originalFileName, sheet.sheetName());
+                EventMeta meta = parseEventMetaOptimized(originalFileName, sheet.sheetName(), activeCount, activeIdx);
                 if (sheetEventName == null || sheetEventName.trim().isEmpty()) {
                     sheetEventName = meta.name();
                 }
@@ -213,6 +219,7 @@ public class IngestService {
                 rawEvent.setErrorMessage("INGESTION_ERROR: " + ex.getMessage());
                 rawEventRepository.save(rawEvent);
             }
+            activeIdx++;
         }
 
         if (totalJobsCreated == 0)
@@ -310,10 +317,7 @@ public class IngestService {
         if (cleanName == null) {
             cleanName = "Unnamed Event";
         }
-        int dotIdx = cleanName.lastIndexOf('.');
-        if (dotIdx > 0) {
-            cleanName = cleanName.substring(0, dotIdx);
-        }
+        cleanName = stripExtension(cleanName);
         cleanName = cleanName.replaceAll("[-_]+", " ").trim();
         return new EventMeta(cleanName, LocalDate.now(), true);
     }
@@ -322,11 +326,7 @@ public class IngestService {
         if (text == null || text.trim().isEmpty()) {
             return null;
         }
-        String nameWithoutExt = text;
-        int dotIdx = text.lastIndexOf('.');
-        if (dotIdx > 0) {
-            nameWithoutExt = text.substring(0, dotIdx);
-        }
+        String nameWithoutExt = stripExtension(text);
         Pattern pattern = Pattern.compile("(\\d{4})[-_](\\d{2})[-_](\\d{2})|(\\d{2})[-_](\\d{2})[-_](\\d{4})");
         Matcher matcher = pattern.matcher(nameWithoutExt);
 
@@ -352,6 +352,131 @@ public class IngestService {
             }
         }
         return null;
+    }
+
+    private boolean isGenericName(String name) {
+        if (name == null) {
+            return true;
+        }
+        String low = name.trim().toLowerCase();
+        return low.isEmpty() ||
+                low.equals("sheet") || low.startsWith("sheet") ||
+                low.equals("trang") || low.startsWith("trang") ||
+                low.equals("raw") || low.startsWith("raw") ||
+                low.equals("data") || low.startsWith("data") ||
+                low.equals("table") || low.startsWith("table") ||
+                low.equals("unnamed") || low.startsWith("unnamed");
+    }
+
+    private String stripExtension(String text) {
+        if (text == null) {
+            return null;
+        }
+        int dotIdx = text.lastIndexOf('.');
+        if (dotIdx > 0) {
+            String ext = text.substring(dotIdx + 1).toLowerCase();
+            if (ext.equals("xlsx") || ext.equals("xls") || ext.equals("csv") || ext.equals("txt")) {
+                return text.substring(0, dotIdx);
+            }
+        }
+        return text;
+    }
+
+    public String cleanEventTextName(String text) {
+        if (text == null) {
+            return "";
+        }
+        String name = stripExtension(text);
+        // 1. Strip numeric prefix: e.g. "01.", "1.", "02 -", "03_", "11.1 ", "12_ "
+        name = name.replaceFirst("^\\d+(\\.\\d+)?\\s*[\\.\\-_\\s]\\s*", "");
+
+        // 2. Strip common noise prefix: e.g. "raw data - ", "danh sach - ", "raw - "
+        name = name.replaceAll("(?i)^(raw data|raw|data|danh sách|danh sach|dskm|ds)[-_\\s]+", "");
+
+        // 3. Strip version/draft suffix: e.g. " v1", "_v2", "-final", " df", " draft",
+        // " copy"
+        name = name.replaceAll("(?i)[-_\\s]+(v\\d+|final|draft|copy|new|edit|raw|data)\\b", "");
+
+        name = name.replaceAll("[-_]+", " ").replaceAll("\\s+", " ").trim();
+        return name;
+    }
+
+    public EventMeta parseEventMetaOptimized(String fileName, String sheetName, int activeSheetCount,
+            int sheetIndex) {
+        // Parse date from either filename or sheetname if we can
+        LocalDate resolvedDate = null;
+        boolean isDateFallback = true;
+        String baseFileName = fileName;
+        String baseSheetName = sheetName;
+
+        if (sheetName != null) {
+            EventMeta meta = parseEventMetaFromText(sheetName);
+            if (meta != null && !meta.isDateFallback()) {
+                resolvedDate = meta.date();
+                isDateFallback = false;
+                baseSheetName = meta.name();
+            }
+        }
+        if (resolvedDate == null && fileName != null) {
+            EventMeta meta = parseEventMetaFromText(fileName);
+            if (meta != null && !meta.isDateFallback()) {
+                resolvedDate = meta.date();
+                isDateFallback = false;
+                baseFileName = meta.name();
+            }
+        }
+        if (resolvedDate == null) {
+            resolvedDate = LocalDate.now();
+            isDateFallback = true;
+            if (fileName != null) {
+                baseFileName = stripExtension(fileName);
+            }
+            if (sheetName != null) {
+                baseSheetName = stripExtension(sheetName);
+            }
+        }
+
+        // Clean names
+        String cleanFile = cleanEventTextName(baseFileName);
+        String cleanSheet = cleanEventTextName(baseSheetName);
+
+        boolean fileIsGeneric = isGenericName(cleanFile);
+        boolean sheetIsGeneric = isGenericName(cleanSheet);
+
+        String finalName;
+
+        if (activeSheetCount <= 1) {
+            if (fileIsGeneric) {
+                String timestamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
+                        .format(java.time.LocalDateTime.now());
+                finalName = "Event_" + timestamp;
+            } else {
+                finalName = cleanFile;
+            }
+        } else {
+            // Count >= 2
+            if (fileIsGeneric && sheetIsGeneric) {
+                String timestamp = java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd_HHmmss")
+                        .format(java.time.LocalDateTime.now());
+                finalName = "Event_" + timestamp + " - Phần " + (sheetIndex + 1);
+            } else if (fileIsGeneric) {
+                // file generic, sheet không generic -> dùng sheet
+                finalName = cleanSheet;
+            } else if (sheetIsGeneric) {
+                // sheet generic, file không -> dùng file + index
+                finalName = cleanFile + " - Phần " + (sheetIndex + 1);
+            } else {
+                // cả 2 không generic -> ghép
+                finalName = cleanFile + " - " + cleanSheet;
+            }
+        }
+
+        // Ensure finalName is not blank
+        if (finalName == null || finalName.trim().isEmpty()) {
+            finalName = "Event " + java.time.format.DateTimeFormatter.ofPattern("yyyyMMdd").format(LocalDate.now());
+        }
+
+        return new EventMeta(finalName.trim(), resolvedDate, isDateFallback);
     }
 
     protected EventMeta parseEventMetaFromFileName(String fileName) {
