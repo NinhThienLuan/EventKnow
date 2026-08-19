@@ -1,5 +1,7 @@
 package com.eventknow.backend.modules.search;
 
+import com.eventknow.backend.modules.ingestion.service.ExtractionResultProcessor;
+
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.eventknow.backend.common.permission.PermissionFilterService;
@@ -84,7 +86,7 @@ public class SearchService {
         // texts)
         String queryPattern = null;
         if (query != null && !query.trim().isEmpty()) {
-            String normalizedQuery = com.eventknow.backend.modules.ingestion.ExtractionResultProcessor
+            String normalizedQuery = ExtractionResultProcessor
                     .normalizeString(query.trim());
             queryPattern = "%" + normalizedQuery
                     .replace("\\", "\\\\")

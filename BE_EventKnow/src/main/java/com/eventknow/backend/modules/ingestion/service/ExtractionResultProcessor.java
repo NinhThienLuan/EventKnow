@@ -1,4 +1,7 @@
-package com.eventknow.backend.modules.ingestion;
+package com.eventknow.backend.modules.ingestion.service;
+
+import com.eventknow.backend.modules.ingestion.normalizer.RuleBasedTitleNormalizer;
+import com.eventknow.backend.modules.ingestion.repository.RawEventRepository;
 
 import com.eventknow.backend.model.entity.Core.AttendeeProfileEntity;
 import com.eventknow.backend.model.entity.Core.EventAttendanceEntity;

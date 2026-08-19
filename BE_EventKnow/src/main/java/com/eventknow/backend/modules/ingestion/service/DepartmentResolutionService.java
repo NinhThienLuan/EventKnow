@@ -1,4 +1,6 @@
-package com.eventknow.backend.modules.ingestion;
+package com.eventknow.backend.modules.ingestion.service;
+
+import com.eventknow.backend.modules.ingestion.repository.DepartmentFolderMappingRepository;
 
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;

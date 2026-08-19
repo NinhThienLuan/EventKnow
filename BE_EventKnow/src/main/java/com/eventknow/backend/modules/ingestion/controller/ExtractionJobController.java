@@ -1,4 +1,4 @@
-package com.eventknow.backend.modules.ingestion;
+package com.eventknow.backend.modules.ingestion.controller;
 
 import com.eventknow.backend.common.permission.PermissionFilterService;
 import lombok.Builder;

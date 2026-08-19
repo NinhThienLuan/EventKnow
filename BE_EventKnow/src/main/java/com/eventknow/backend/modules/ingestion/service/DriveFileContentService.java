@@ -1,4 +1,6 @@
-package com.eventknow.backend.modules.ingestion;
+package com.eventknow.backend.modules.ingestion.service;
+
+import com.eventknow.backend.modules.ingestion.exception.DriveConnectionExpiredException;
 
 import com.eventknow.backend.model.entity.Audit.UserDriveConnectionEntity;
 import com.eventknow.backend.modules.auth.DriveTokenService;

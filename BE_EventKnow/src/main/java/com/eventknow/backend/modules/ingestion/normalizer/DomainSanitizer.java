@@ -1,4 +1,4 @@
-package com.eventknow.backend.modules.ingestion;
+package com.eventknow.backend.modules.ingestion.normalizer;
 
 import org.springframework.stereotype.Component;
 import java.util.*;

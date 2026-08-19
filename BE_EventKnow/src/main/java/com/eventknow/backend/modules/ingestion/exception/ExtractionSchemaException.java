@@ -1,4 +1,4 @@
-package com.eventknow.backend.modules.ingestion;
+package com.eventknow.backend.modules.ingestion.exception;
 
 public class ExtractionSchemaException extends RuntimeException {
     public ExtractionSchemaException(String message) {

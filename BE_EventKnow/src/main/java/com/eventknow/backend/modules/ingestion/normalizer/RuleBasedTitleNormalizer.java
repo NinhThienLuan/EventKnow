@@ -1,4 +1,6 @@
-package com.eventknow.backend.modules.ingestion;
+package com.eventknow.backend.modules.ingestion.normalizer;
+
+import com.eventknow.backend.modules.ingestion.repository.AcademicTitleAliasRepository;
 
 import com.eventknow.backend.model.entity.Audit.AcademicTitleAliasEntity;
 import lombok.RequiredArgsConstructor;

@@ -1,5 +1,14 @@
 package com.eventknow.backend.modules.ingestion;
 
+import com.eventknow.backend.modules.ingestion.service.EventResolutionService;
+import com.eventknow.backend.modules.ingestion.repository.ExtractionJobRepository;
+import com.eventknow.backend.modules.ingestion.service.IngestService;
+import com.eventknow.backend.modules.ingestion.repository.AcademicTitleAliasRepository;
+import com.eventknow.backend.modules.ingestion.worker.ExtractionJobWorker;
+import com.eventknow.backend.modules.ingestion.repository.RawEventRepository;
+import com.eventknow.backend.modules.ingestion.worker.SemanticLabelingScheduler;
+import com.eventknow.backend.modules.ingestion.normalizer.ExcelHeaderMapper;
+
 import com.eventknow.backend.model.entity.Audit.AcademicTitleAliasEntity;
 import com.eventknow.backend.model.entity.Core.AttendeeProfileEntity;
 import com.eventknow.backend.model.entity.Core.EventAttendanceEntity;

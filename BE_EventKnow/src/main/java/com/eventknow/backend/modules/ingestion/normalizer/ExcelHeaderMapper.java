@@ -1,4 +1,4 @@
-package com.eventknow.backend.modules.ingestion;
+package com.eventknow.backend.modules.ingestion.normalizer;
 
 import org.apache.poi.ss.usermodel.*;
 import org.springframework.stereotype.Component;

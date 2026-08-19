@@ -1,4 +1,4 @@
-package com.eventknow.backend.modules.ingestion;
+package com.eventknow.backend.modules.ingestion.service;
 
 import com.eventknow.backend.model.entity.Core.EventEntity;
 import com.eventknow.backend.modules.identity.EventRepository;

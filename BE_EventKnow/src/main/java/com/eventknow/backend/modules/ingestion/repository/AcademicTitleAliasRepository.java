@@ -1,4 +1,4 @@
-package com.eventknow.backend.modules.ingestion;
+package com.eventknow.backend.modules.ingestion.repository;
 
 import com.eventknow.backend.model.entity.Audit.AcademicTitleAliasEntity;
 import org.springframework.data.jpa.repository.JpaRepository;

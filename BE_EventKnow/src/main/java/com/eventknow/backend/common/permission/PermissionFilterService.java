@@ -1,5 +1,7 @@
 package com.eventknow.backend.common.permission;
 
+import com.eventknow.backend.modules.ingestion.service.DriveFileContentService;
+
 import com.eventknow.backend.modules.auth.DriveTokenService;
 import com.eventknow.backend.modules.auth.UserDriveConnectionRepository;
 import lombok.RequiredArgsConstructor;

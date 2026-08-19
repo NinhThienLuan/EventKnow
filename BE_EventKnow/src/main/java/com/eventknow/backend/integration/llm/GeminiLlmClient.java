@@ -1,6 +1,6 @@
 package com.eventknow.backend.integration.llm;
 
-import com.eventknow.backend.modules.ingestion.ExtractionSchemaException;
+import com.eventknow.backend.modules.ingestion.exception.ExtractionSchemaException;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;

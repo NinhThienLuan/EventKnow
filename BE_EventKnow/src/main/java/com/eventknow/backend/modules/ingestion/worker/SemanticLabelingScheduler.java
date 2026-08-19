@@ -1,4 +1,8 @@
-package com.eventknow.backend.modules.ingestion;
+package com.eventknow.backend.modules.ingestion.worker;
+
+import com.eventknow.backend.modules.ingestion.repository.ExtractionJobRepository;
+import com.eventknow.backend.modules.ingestion.normalizer.DomainSanitizer;
+import com.eventknow.backend.modules.ingestion.repository.RawEventRepository;
 
 import com.eventknow.backend.model.entity.Core.AttendeeProfileEntity;
 import com.eventknow.backend.model.entity.Core.RawEventEntity;

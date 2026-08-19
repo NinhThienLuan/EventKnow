@@ -1,4 +1,6 @@
-package com.eventknow.backend.modules.ingestion;
+package com.eventknow.backend.modules.ingestion.controller;
+
+import com.eventknow.backend.modules.ingestion.service.IngestService;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
@@ -71,6 +73,7 @@ public class IngestController {
             return ResponseEntity.ok(response);
 
         } catch (Exception e) {
+            org.slf4j.LoggerFactory.getLogger(IngestController.class).error("Ingestion failed: ", e);
             return ResponseEntity.internalServerError()
                     .body(Map.of("error", "Failed to initiate ingestion: " + e.getMessage()));
         }
