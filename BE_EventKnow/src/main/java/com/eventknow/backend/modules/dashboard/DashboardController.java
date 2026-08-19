@@ -14,6 +14,7 @@ import org.springframework.security.core.GrantedAuthority;
 import org.springframework.web.bind.annotation.*;
 
 import java.time.LocalDate;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -73,24 +74,21 @@ public class DashboardController {
          * @param eventIds      optional list of canonical event UUIDs (FR-4.6 Event
          *                      Dashboard)
          */
-        @GetMapping("/aggregate")
-        public ResponseEntity<DashboardAggregateResponse> getAggregate(
+        @GetMapping("/system-summary")
+        public ResponseEntity<DashboardAggregateResponse> getSystemSummary(
                         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate startDate,
                         @RequestParam(required = false) @DateTimeFormat(iso = DateTimeFormat.ISO.DATE) LocalDate endDate,
                         @RequestParam(required = false) String department,
                         @RequestParam(required = false) String academicTitle,
                         @RequestParam(required = false) String role,
-                        @RequestParam(required = false) List<UUID> eventIds,
                         Authentication auth) {
 
                 String viewerEmail = auth.getName();
                 boolean isAdmin = hasAdminRole(auth);
 
-                // Resolve RLS once — result passed to all downstream queries in this request
                 List<UUID> visibleRawEventIds = permissionFilterService.getVisibleRawEventIds(viewerEmail, isAdmin);
-                log.debug("Dashboard aggregate: viewer={} isAdmin={} visibleCount={} eventIds={}",
-                                viewerEmail, isAdmin, visibleRawEventIds == null ? "ALL" : visibleRawEventIds.size(),
-                                eventIds == null ? "SYSTEM" : eventIds.size());
+                log.debug("System dashboard summary: viewer={} isAdmin={} visibleCount={}",
+                                viewerEmail, isAdmin, visibleRawEventIds == null ? "ALL" : visibleRawEventIds.size());
 
                 String normalDept = (department == null || department.trim().isEmpty()
                                 || "ALL".equalsIgnoreCase(department))
@@ -100,14 +98,53 @@ public class DashboardController {
                                 || "ALL".equalsIgnoreCase(academicTitle)) ? null : academicTitle.trim();
                 String normalRole = (role == null || role.trim().isEmpty() || "ALL".equalsIgnoreCase(role)) ? null
                                 : role.trim().toUpperCase();
-                // eventIds: null = System stream, empty list treated same as null (no events
-                // selected yet — return global view; FE guards against calling with empty list)
-                List<UUID> normalEventIds = (eventIds == null || eventIds.isEmpty()) ? null : eventIds;
 
                 DashboardFilterParams filters = new DashboardFilterParams(
-                                startDate, endDate, normalDept, normalTitle, normalRole, normalEventIds);
+                                startDate, endDate, normalDept, normalTitle, normalRole, null);
                 DashboardAggregateResponse response = aggregateService.getAggregate(filters, visibleRawEventIds);
                 return ResponseEntity.ok(response);
+        }
+
+        @GetMapping("/event-summary")
+        public ResponseEntity<DashboardAggregateResponse> getEventSummary(
+                        @RequestParam(required = false) List<String> eventIds,
+                        Authentication auth) {
+
+                String viewerEmail = auth.getName();
+                boolean isAdmin = hasAdminRole(auth);
+
+                List<UUID> visibleRawEventIds = permissionFilterService.getVisibleRawEventIds(viewerEmail, isAdmin);
+                List<UUID> parsedEventIds = parseEventIds(eventIds);
+                log.debug("Event dashboard summary: viewer={} isAdmin={} visibleCount={} parsedEventIds={}",
+                                viewerEmail, isAdmin, visibleRawEventIds == null ? "ALL" : visibleRawEventIds.size(),
+                                parsedEventIds == null ? "null" : parsedEventIds.size());
+
+                DashboardFilterParams filters = new DashboardFilterParams(
+                                null, null, null, null, null, parsedEventIds);
+                DashboardAggregateResponse response = aggregateService.getAggregate(filters, visibleRawEventIds);
+                return ResponseEntity.ok(response);
+        }
+
+        private List<UUID> parseEventIds(List<String> eventIdsRaw) {
+                if (eventIdsRaw == null || eventIdsRaw.isEmpty()) {
+                        return null;
+                }
+                List<UUID> list = new ArrayList<>();
+                for (String raw : eventIdsRaw) {
+                        if (raw == null)
+                                continue;
+                        for (String part : raw.split(",")) {
+                                String trimmed = part.trim();
+                                if (!trimmed.isEmpty()) {
+                                        try {
+                                                list.add(UUID.fromString(trimmed));
+                                        } catch (IllegalArgumentException e) {
+                                                log.warn("Invalid event UUID format ignored: {}", trimmed);
+                                        }
+                                }
+                        }
+                }
+                return list.isEmpty() ? null : list;
         }
 
         /**

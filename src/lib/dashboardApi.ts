@@ -22,12 +22,14 @@ export async function fetchDashboardAggregate(filters: DashboardFilterParams = {
     if (filters.department) queryParams.append('department', filters.department);
     if (filters.academicTitle) queryParams.append('academicTitle', filters.academicTitle);
     if (filters.role) queryParams.append('role', filters.role);
-    // FR-4.6: repeated params for Spring's List<UUID> binding
-    if (filters.eventIds && filters.eventIds.length > 0) {
-        filters.eventIds.forEach(id => queryParams.append('eventIds', id));
+
+    const hasEventIds = filters.eventIds && filters.eventIds.length > 0;
+    if (hasEventIds) {
+        filters.eventIds!.forEach(id => queryParams.append('eventIds', id));
     }
 
-    const url = `${BASE}/aggregate?${queryParams.toString()}`;
+    const endpoint = hasEventIds ? 'event-summary' : 'system-summary';
+    const url = `${BASE}/${endpoint}?${queryParams.toString()}`;
 
     const response = await fetch(url, {
         method: 'GET',

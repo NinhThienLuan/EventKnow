@@ -1,15 +1,20 @@
 package com.eventknow.backend.modules.event;
 
 import com.eventknow.backend.model.entity.Core.EventEntity;
+import com.eventknow.backend.modules.event.dto.EventListPagedDto;
 import com.eventknow.backend.modules.identity.EventRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.PageImpl;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.HttpStatus;
 import org.springframework.jdbc.core.namedparam.MapSqlParameterSource;
 import org.springframework.jdbc.core.namedparam.NamedParameterJdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.LocalDate;
 import java.util.*;
 
 @Service
@@ -21,6 +26,11 @@ public class EventService {
     private final EventRepository eventRepository;
 
     public static final String UNCLASSIFIED_DEPARTMENT = "Chưa phân loại";
+
+    private static final Set<String> SIHUB_DEPARTMENTS = Set.of(
+            "CNTT", "Kỹ thuật - Công nghệ", "Y tế", "Giáo dục", "AgriTech",
+            "Chế biến chế tạo - Tự động hóa", "Kinh tế - Xã hội và Môi trường", "Khác",
+            "Chưa phân loại");
 
     /**
      * Get Source Tree Structure
@@ -246,6 +256,90 @@ public class EventService {
                 "ORDER BY cnt DESC " +
                 "LIMIT 30";
         return jdbc.query(sql, new MapSqlParameterSource(), (rs, rowNum) -> rs.getString("tag"));
+    }
+
+    public Page<EventListPagedDto> getEventsPaged(
+            String department, Integer year, String quarter, String search,
+            List<UUID> visibleRawEventIds, int page, int size) {
+
+        if (visibleRawEventIds != null && visibleRawEventIds.isEmpty()) {
+            return new PageImpl<>(Collections.emptyList(), PageRequest.of(page, size), 0);
+        }
+
+        if (department != null && !department.trim().isEmpty() && !department.equalsIgnoreCase("ALL")) {
+            String deptTrim = department.trim();
+            if (!SIHUB_DEPARTMENTS.contains(deptTrim)) {
+                throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Invalid department: " + deptTrim);
+            }
+        }
+
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        StringBuilder sql = new StringBuilder();
+        sql.append("FROM events e ");
+        sql.append("JOIN raw_events re ON re.event_id = e.id ");
+        sql.append("WHERE e.is_active = true ");
+
+        if (visibleRawEventIds != null) {
+            params.addValue("visibleRawEventIds", visibleRawEventIds.toArray(UUID[]::new));
+            sql.append("  AND re.id = ANY(:visibleRawEventIds::uuid[]) ");
+        }
+
+        if (department != null && !department.trim().isEmpty() && !department.equalsIgnoreCase("ALL")) {
+            params.addValue("department", department.trim());
+            sql.append("  AND e.department = :department ");
+        }
+
+        if (year != null) {
+            params.addValue("year", year);
+            sql.append("  AND (e.event_date IS NOT NULL AND EXTRACT(YEAR FROM e.event_date) = :year) ");
+        }
+
+        if (quarter != null && !quarter.trim().isEmpty() && !quarter.equalsIgnoreCase("ALL")) {
+            String q = quarter.trim().toUpperCase();
+            int qNum = 1;
+            if (q.contains("2"))
+                qNum = 2;
+            else if (q.contains("3"))
+                qNum = 3;
+            else if (q.contains("4"))
+                qNum = 4;
+            params.addValue("quarterNumber", qNum);
+            sql.append("  AND (e.event_date IS NOT NULL AND EXTRACT(QUARTER FROM e.event_date) = :quarterNumber) ");
+        }
+
+        if (search != null && !search.trim().isEmpty()) {
+            params.addValue("searchPattern", "%" + search.trim() + "%");
+            sql.append("  AND e.event_name ILIKE :searchPattern ");
+        }
+
+        String countSql = "SELECT COUNT(DISTINCT e.id) " + sql.toString();
+        Integer totalCount = jdbc.queryForObject(countSql, params, Integer.class);
+        if (totalCount == null || totalCount == 0) {
+            return new PageImpl<>(Collections.emptyList(), PageRequest.of(page, size), 0);
+        }
+
+        StringBuilder querySql = new StringBuilder();
+        querySql.append(
+                "SELECT e.id, e.event_name, e.event_date, e.department, COUNT(DISTINCT re.id) AS raw_event_count ");
+        querySql.append(sql.toString());
+        querySql.append("GROUP BY e.id, e.event_name, e.event_date, e.department ");
+        querySql.append("ORDER BY e.event_date DESC, e.event_name ASC ");
+        querySql.append("LIMIT :limit OFFSET :offset");
+
+        params.addValue("limit", size);
+        params.addValue("offset", page * size);
+
+        List<EventListPagedDto> content = jdbc.query(querySql.toString(), params, (rs, rowNum) -> {
+            return EventListPagedDto.builder()
+                    .id(rs.getObject("id", UUID.class))
+                    .eventName(rs.getString("event_name"))
+                    .eventDate(rs.getObject("event_date", LocalDate.class))
+                    .department(rs.getString("department"))
+                    .rawEventCount(rs.getLong("raw_event_count"))
+                    .build();
+        });
+
+        return new PageImpl<>(content, PageRequest.of(page, size), totalCount);
     }
 
     private Map<String, Object> buildTreeFromRows(List<TreeEventRow> rows) {

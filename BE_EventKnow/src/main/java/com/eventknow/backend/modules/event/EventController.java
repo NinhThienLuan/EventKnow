@@ -32,6 +32,24 @@ public class EventController {
         return ResponseEntity.ok(Map.of("status", "success", "data", tree));
     }
 
+    @GetMapping("/events")
+    public ResponseEntity<?> getEventsPaged(
+            @RequestParam(value = "department", required = false) String department,
+            @RequestParam(value = "year", required = false) Integer year,
+            @RequestParam(value = "quarter", required = false) String quarter,
+            @RequestParam(value = "search", required = false) String search,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "10") int size,
+            Authentication auth) {
+        String email = auth.getName();
+        boolean isAdmin = hasAdminRole(auth);
+
+        List<UUID> visibleRawEventIds = permissionFilterService.getVisibleRawEventIds(email, isAdmin);
+        org.springframework.data.domain.Page<?> result = eventService.getEventsPaged(department, year, quarter, search,
+                visibleRawEventIds, page, size);
+        return ResponseEntity.ok(Map.of("status", "success", "data", result));
+    }
+
     @GetMapping("/events/{eventId}")
     public ResponseEntity<?> getEventDetail(
             @PathVariable("eventId") UUID eventId,

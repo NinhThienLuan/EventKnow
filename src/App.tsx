@@ -1,5 +1,6 @@
 import React, { useState, useRef } from 'react';
 import { ArrowLeft, Plus, FileText, Network } from 'lucide-react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { Header } from './components/Header';
 import { SourceTree } from './components/SourceTree';
 import { PromptSection } from './components/PromptSection';
@@ -20,6 +21,8 @@ import { PartnersMgmtView } from './components/PartnersMgmtView';
 import { GoogleAuthModal, UserProfile } from './components/GoogleAuthModal';
 import { GoogleDrivePicker, DriveFileItem } from './components/GoogleDrivePicker';
 import { EventDetailView } from './components/EventDetailView';
+import { EventsListView } from './components/EventsListView';
+import { EventsDashboardView } from './components/EventsDashboardView';
 
 import { MOCK_REPORTS, SUGGESTION_CARDS, RECENT_REPORTS_LIST, MOCK_CITATIONS, MOCK_EVENT_RECORDS } from './data/mockData';
 import { AIReport, CitationSource, SuggestionCard } from './types';
@@ -34,14 +37,21 @@ export default function App() {
     }
   });
   const [theme, setTheme] = useState<'light' | 'dark'>('light');
-  const [activeNavView, setActiveNavView] = useState<string>(() => {
-    try {
-      const saved = localStorage.getItem('eventknow_active_view');
-      return saved || 'home';
-    } catch {
-      return 'home';
+  const navigate = useNavigate();
+  const location = useLocation();
+  // Derive activeNavView from pathname — strip leading slash
+  const pathToView = (p: string) => {
+    const clean = p.replace(/^\//, '') || 'home';
+    if (clean.startsWith('event-detail/')) {
+      return 'event-detail';
     }
-  });
+    return clean;
+  };
+  const activeNavView = pathToView(location.pathname);
+  const eventDetailId = location.pathname.startsWith('/event-detail/')
+    ? location.pathname.substring('/event-detail/'.length)
+    : '';
+  const setActiveNavView = (view: string) => navigate(view === 'home' ? '/' : `/${view}`);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [selectedSourceId, setSelectedSourceId] = useState<string>(() => {
     try {
@@ -52,6 +62,29 @@ export default function App() {
     }
   });
   const [activeSimulatedEmail, setActiveSimulatedEmail] = useState<string>('luanninh2005@gmail.com');
+  const [selectedEventIds, setSelectedEventIds] = useState<string[]>([]);
+
+  const handleToggleSelectEvent = (eventId: string) => {
+    setSelectedEventIds(prev =>
+      prev.includes(eventId)
+        ? prev.filter(id => id !== eventId)
+        : [...prev, eventId]
+    );
+  };
+
+  const handleSelectAllEvents = (eventIds: string[], select: boolean) => {
+    if (select) {
+      setSelectedEventIds(prev => {
+        const next = [...prev];
+        eventIds.forEach(id => {
+          if (!next.includes(id)) next.push(id);
+        });
+        return next;
+      });
+    } else {
+      setSelectedEventIds(prev => prev.filter(id => !eventIds.includes(id)));
+    }
+  };
 
   // Google OAuth User State
   const [isAuthModalOpen, setIsAuthModalOpen] = useState<boolean>(false);
@@ -112,13 +145,6 @@ export default function App() {
     }
   }, [language]);
 
-  React.useEffect(() => {
-    try {
-      localStorage.setItem('eventknow_active_view', activeNavView);
-    } catch (e) {
-      console.warn('Failed to save active view setting', e);
-    }
-  }, [activeNavView]);
 
   React.useEffect(() => {
     try {
@@ -368,6 +394,8 @@ export default function App() {
             }}
             isAdmin={userProfile.isLoggedIn && userProfile.role === 'ROLE_ADMIN'}
             userProfile={userProfile}
+            mode="sidebar"
+            selectedEventIds={selectedEventIds}
           />
         </div>
 
@@ -375,9 +403,9 @@ export default function App() {
         <main className="flex-1 overflow-y-auto px-3 sm:px-6 lg:px-8 py-4 sm:py-6 space-y-4 sm:space-y-6 min-w-0">
           {activeNavView === 'event-detail' ? (
             <EventDetailView
-              eventId={selectedSourceId}
+              eventId={eventDetailId || selectedSourceId}
               language={language}
-              onBack={() => setActiveNavView('dashboard')}
+              onBack={() => setActiveNavView('events')}
             />
           ) : activeNavView === 'reports' ? (
             <div className="space-y-4 max-w-5xl mx-auto w-full animate-fade-in">
@@ -459,6 +487,20 @@ export default function App() {
             />
           ) : (activeNavView === 'jobs' || activeNavView === 'extraction-jobs') ? (
             <ExtractionJobsView language={language} />
+          ) : activeNavView === 'events' ? (
+            <EventsListView
+              language={language}
+              selectedEventIds={selectedEventIds}
+              onToggleSelectEvent={handleToggleSelectEvent}
+              onSelectAllEvents={handleSelectAllEvents}
+              onNavigateToDashboard={() => setActiveNavView('events-dashboard')}
+            />
+          ) : activeNavView === 'events-dashboard' ? (
+            <EventsDashboardView
+              language={language}
+              selectedEventIds={selectedEventIds}
+              onBack={() => setActiveNavView('events')}
+            />
           ) : activeNavView === 'dashboard' ? (
             <DashboardAnalyticsView
               language={language}
