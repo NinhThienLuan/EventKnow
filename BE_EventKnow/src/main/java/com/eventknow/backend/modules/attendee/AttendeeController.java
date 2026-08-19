@@ -212,8 +212,8 @@ public class AttendeeController {
                                 .anyMatch(a -> a.getAuthority().equals("ROLE_ADMIN"));
         }
 
-        @PatchMapping("/{id}/status")
-        public ResponseEntity<?> updateStatus(
+        @PatchMapping("/{id}/follow-up-status")
+        public ResponseEntity<?> updateFollowUpStatus(
                         @PathVariable("id") UUID id,
                         @RequestBody Map<String, String> requestBody) {
 

@@ -44,6 +44,29 @@ public class EventController {
         return ResponseEntity.ok(Map.of("status", "success", "data", detail));
     }
 
+    @PatchMapping("/events/{eventId}/topic-tags")
+    public ResponseEntity<?> updateTopicTags(
+            @PathVariable("eventId") UUID eventId,
+            @RequestBody List<String> topicTags,
+            Authentication auth) {
+        String email = auth.getName();
+        boolean isAdmin = hasAdminRole(auth);
+
+        List<UUID> visibleRawEventIds = permissionFilterService.getVisibleRawEventIds(email, isAdmin);
+        eventService.updateTopicTags(eventId, topicTags, visibleRawEventIds);
+        return ResponseEntity.ok(Map.of("status", "success"));
+    }
+
+    /**
+     * Research reference tags query. Exempt from department RLS restrictions
+     * since it does not expose any personal or sensitive department data.
+     */
+    @GetMapping("/tags/popular")
+    public ResponseEntity<?> getPopularTags() {
+        List<String> tags = eventService.getPopularTags();
+        return ResponseEntity.ok(Map.of("status", "success", "data", tags));
+    }
+
     private boolean hasAdminRole(Authentication auth) {
         if (auth == null) {
             return false;

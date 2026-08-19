@@ -188,6 +188,66 @@ public class EventService {
         return result;
     }
 
+    @org.springframework.transaction.annotation.Transactional
+    public void updateTopicTags(UUID eventId, List<String> topicTags, List<UUID> visibleRawEventIds) {
+        if (topicTags == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "topicTags body is required");
+        }
+
+        EventEntity event = eventRepository.findByIdAndIsActiveTrue(eventId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Event not found"));
+
+        // RLS Check: enforce visibleRawEventIds scope
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        params.addValue("eventId", eventId);
+        StringBuilder reSql = new StringBuilder("SELECT COUNT(*) FROM raw_events WHERE event_id = :eventId");
+        if (visibleRawEventIds != null) {
+            params.addValue("visibleRawEventIds", visibleRawEventIds.toArray(UUID[]::new));
+            reSql.append(" AND id = ANY(:visibleRawEventIds::uuid[])");
+        }
+        Integer count = jdbc.queryForObject(reSql.toString(), params, java.lang.Integer.class);
+        if (count == null || count == 0) {
+            throw new ResponseStatusException(HttpStatus.FORBIDDEN, "Access to this event is restricted");
+        }
+
+        // Tag deduplication, trimming, constraint validation
+        List<String> cleanedTags = new ArrayList<>();
+        Set<String> seen = new HashSet<>();
+        for (String tag : topicTags) {
+            if (tag == null)
+                continue;
+            String clean = tag.trim();
+            if (clean.isEmpty())
+                continue;
+            if (seen.add(clean.toLowerCase())) {
+                cleanedTags.add(clean);
+            }
+        }
+
+        if (cleanedTags.size() > 20) {
+            cleanedTags = cleanedTags.subList(0, 20);
+        }
+
+        if (cleanedTags.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "topicTags cannot be empty");
+        }
+
+        event.setTopicTags(cleanedTags);
+        eventRepository.save(event);
+    }
+
+    public List<String> getPopularTags() {
+        String sql = "SELECT tag, COUNT(*) AS cnt FROM (" +
+                "  SELECT unnest(expertise_tags) AS tag " +
+                "  FROM attendee_profiles " +
+                "  WHERE is_active = true" +
+                ") t " +
+                "GROUP BY tag " +
+                "ORDER BY cnt DESC " +
+                "LIMIT 30";
+        return jdbc.query(sql, new MapSqlParameterSource(), (rs, rowNum) -> rs.getString("tag"));
+    }
+
     private Map<String, Object> buildTreeFromRows(List<TreeEventRow> rows) {
         // Group by Department -> Year -> Quarter
         Map<String, Map<String, Map<String, List<Map<String, Object>>>>> treeStructure = new LinkedHashMap<>();

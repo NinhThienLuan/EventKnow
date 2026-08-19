@@ -95,7 +95,7 @@ export async function fetchAttendeeDetail(id: string): Promise<AttendeeProfile> 
 
 // Update attendee follow-up status
 export async function updateAttendeeStatus(id: string, status: string): Promise<AttendeeProfile> {
-    const response = await fetch(`/api/attendees/${id}/status`, {
+    const response = await fetch(`/api/attendees/${id}/follow-up-status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ followUpStatus: status }),
