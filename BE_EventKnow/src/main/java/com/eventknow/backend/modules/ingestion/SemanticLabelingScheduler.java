@@ -6,6 +6,9 @@ import com.eventknow.backend.model.entity.Audit.ExtractionJobEntity;
 import com.eventknow.backend.model.entity.Core.EventAttendanceEntity;
 import com.eventknow.backend.modules.identity.AttendeeProfileRepository;
 import com.eventknow.backend.modules.identity.EventAttendanceRepository;
+import com.eventknow.backend.integration.llm.LlmProviderClient;
+import com.eventknow.backend.integration.llm.AttendeeExtractionInputDto;
+import com.eventknow.backend.integration.llm.EnrichedTaxonomyDto;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -24,7 +27,8 @@ public class SemanticLabelingScheduler {
     private final EventAttendanceRepository eventAttendanceRepository;
     private final ExtractionJobRepository extractionJobRepository;
     private final RawEventRepository rawEventRepository;
-    private final GeminiExtractionClient geminiExtractionClient;
+    private final LlmProviderClient llmProviderClient;
+    private final DomainSanitizer domainSanitizer;
     private final org.springframework.transaction.PlatformTransactionManager transactionManager;
 
     @Scheduled(fixedDelay = 4000)
@@ -73,11 +77,11 @@ public class SemanticLabelingScheduler {
 
             log.info("Found {} pending attendee profiles to label for job ID: {}", pending.size(), job.getId());
 
-            // Map entities to Gemini labeling input items
-            List<GeminiExtractionClient.LabelingInputItem> items = new ArrayList<>();
+            // Map entities to labeling input items
+            List<AttendeeExtractionInputDto> items = new ArrayList<>();
             for (int i = 0; i < pending.size(); i++) {
                 AttendeeProfileEntity profile = pending.get(i);
-                items.add(new GeminiExtractionClient.LabelingInputItem(
+                items.add(new AttendeeExtractionInputDto(
                         i,
                         profile.getFullName(),
                         profile.getOrganizationTextRaw(),
@@ -87,22 +91,17 @@ public class SemanticLabelingScheduler {
                         profile.getResearchFieldsRaw()));
             }
 
-            // Call Gemini API
-            GeminiExtractionClient.GeminiLabelingResponse response = geminiExtractionClient.labelBatch(
-                    items,
-                    "async-batch-enrichment",
-                    "attendees",
-                    1,
-                    pending.size());
+            // Call LLM Provider
+            List<EnrichedTaxonomyDto> response = llmProviderClient.extractTaxonomy(items);
 
-            if (response == null || response.labeledRows() == null) {
-                throw new RuntimeException("Gemini semantic labeling returned empty or null response.");
+            if (response == null) {
+                throw new RuntimeException("Semantic labeling returned null response.");
             }
 
             // Update database entities under a transaction
             new org.springframework.transaction.support.TransactionTemplate(transactionManager)
                     .executeWithoutResult(status -> {
-                        updateAttendeeProfiles(pending, response.labeledRows());
+                        updateAttendeeProfiles(pending, response);
                     });
 
             // Re-check pending attendees for the current job range post-enrichment
@@ -152,16 +151,16 @@ public class SemanticLabelingScheduler {
 
     private void updateAttendeeProfiles(
             List<AttendeeProfileEntity> pending,
-            List<GeminiExtractionClient.LabeledRowResult> labeledRows) {
+            List<EnrichedTaxonomyDto> labeledRows) {
 
-        Map<Integer, GeminiExtractionClient.LabeledRowResult> resultMapping = new HashMap<>();
-        for (GeminiExtractionClient.LabeledRowResult row : labeledRows) {
+        Map<Integer, EnrichedTaxonomyDto> resultMapping = new HashMap<>();
+        for (EnrichedTaxonomyDto row : labeledRows) {
             resultMapping.put(row.rowNumber(), row);
         }
 
         for (int i = 0; i < pending.size(); i++) {
             AttendeeProfileEntity profile = pending.get(i);
-            GeminiExtractionClient.LabeledRowResult result = resultMapping.get(i);
+            EnrichedTaxonomyDto result = resultMapping.get(i);
 
             if (result != null) {
                 // Update role
@@ -177,11 +176,7 @@ public class SemanticLabelingScheduler {
                 }
 
                 // Update research domains
-                if (result.researchDomains() != null) {
-                    profile.setResearchDomains(result.researchDomains());
-                } else {
-                    profile.setResearchDomains(Collections.emptyList());
-                }
+                profile.setResearchDomains(domainSanitizer.sanitize(result.researchDomains()));
 
                 // Update expertise tags
                 if (result.expertiseTags() != null) {

@@ -11,6 +11,7 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import com.eventknow.backend.integration.llm.IngestionModels;
 
 import java.util.*;
 
@@ -29,7 +30,7 @@ public class ExtractionResultProcessor {
     @Transactional
     public void processBatchRows(
             UUID rawEventId,
-            List<GeminiExtractionClient.BatchRowResult> batchRows) {
+            List<IngestionModels.BatchRowResult> batchRows) {
         log.info("Processing result entities for rawEventId: {}, count row batches: {}", rawEventId, batchRows.size());
 
         RawEventEntity rawEvent = rawEventRepository.findById(rawEventId)
@@ -39,18 +40,18 @@ public class ExtractionResultProcessor {
         Map<String, AttendeeProfileEntity> localResolvedAttendees = new HashMap<>(); // key: email or
                                                                                      // normalizedName_phone
 
-        for (GeminiExtractionClient.BatchRowResult rowResult : batchRows) {
+        for (IngestionModels.BatchRowResult rowResult : batchRows) {
             int rowNum = rowResult.rowNumber();
-            List<GeminiExtractionClient.ExtractedEntity> entities = rowResult.entities();
+            List<IngestionModels.ExtractedEntity> entities = rowResult.entities();
             if (entities == null || entities.isEmpty()) {
                 continue;
             }
 
             // Separate into Organization and Person groups for local linking
-            List<GeminiExtractionClient.ExtractedEntity> orgEntities = new ArrayList<>();
-            List<GeminiExtractionClient.ExtractedEntity> personEntities = new ArrayList<>();
+            List<IngestionModels.ExtractedEntity> orgEntities = new ArrayList<>();
+            List<IngestionModels.ExtractedEntity> personEntities = new ArrayList<>();
 
-            for (GeminiExtractionClient.ExtractedEntity entity : entities) {
+            for (IngestionModels.ExtractedEntity entity : entities) {
                 if ("ORGANIZATION".equalsIgnoreCase(entity.entityType())) {
                     orgEntities.add(entity);
                 } else if ("PERSON".equalsIgnoreCase(entity.entityType())) {
@@ -59,7 +60,7 @@ public class ExtractionResultProcessor {
             }
 
             // 1. Process Organizations
-            for (GeminiExtractionClient.ExtractedEntity orgEnt : orgEntities) {
+            for (IngestionModels.ExtractedEntity orgEnt : orgEntities) {
                 String orgName = orgEnt.orgName();
                 if (orgName == null || orgName.trim().isEmpty()) {
                     continue;
@@ -82,7 +83,7 @@ public class ExtractionResultProcessor {
             }
 
             // 2. Process Persons
-            for (GeminiExtractionClient.ExtractedEntity pEnt : personEntities) {
+            for (IngestionModels.ExtractedEntity pEnt : personEntities) {
                 String fullName = pEnt.fullName();
                 if (fullName == null || fullName.trim().isEmpty()) {
                     continue;
@@ -274,7 +275,7 @@ public class ExtractionResultProcessor {
     }
 
     private AttendeeProfileEntity resolveOrCreateAttendee(
-            GeminiExtractionClient.ExtractedEntity pEnt,
+            IngestionModels.ExtractedEntity pEnt,
             OrganizationEntity linkedOrg,
             Map<String, Object> profileAttributes) {
         String email = pEnt.email();

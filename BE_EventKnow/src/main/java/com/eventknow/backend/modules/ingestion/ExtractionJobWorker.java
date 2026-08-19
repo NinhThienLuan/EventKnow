@@ -4,6 +4,7 @@ import com.eventknow.backend.model.entity.Audit.ExtractionJobEntity;
 import com.eventknow.backend.model.entity.Core.RawEventEntity;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.eventknow.backend.integration.llm.IngestionModels;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Scheduled;
@@ -33,7 +34,7 @@ public class ExtractionJobWorker {
             String academicTitleRaw,
             List<String> academicTitleNormalized,
             List<String> researchFieldsRaw,
-            List<GeminiExtractionClient.DynamicAttributeDto> dynamicAttributes) {
+            List<IngestionModels.DynamicAttributeDto> dynamicAttributes) {
     }
 
     @Scheduled(fixedDelayString = "${eventknow.worker.polling-delay:30000}")
@@ -168,7 +169,7 @@ public class ExtractionJobWorker {
                 }
 
                 // Dynamic Attributes
-                List<GeminiExtractionClient.DynamicAttributeDto> dynamicAttributes = new ArrayList<>();
+                List<IngestionModels.DynamicAttributeDto> dynamicAttributes = new ArrayList<>();
                 for (Map.Entry<String, Object> entry : unmappedHeaders.entrySet()) {
                     Integer colIdx = null;
                     try {
@@ -180,7 +181,7 @@ public class ExtractionJobWorker {
                         String cellVal = rowData.get(colName);
                         if (cellVal != null && !cellVal.trim().isEmpty()) {
                             dynamicAttributes
-                                    .add(new GeminiExtractionClient.DynamicAttributeDto(colName, cellVal.trim()));
+                                    .add(new IngestionModels.DynamicAttributeDto(colName, cellVal.trim()));
                         }
                     }
                 }
@@ -202,7 +203,7 @@ public class ExtractionJobWorker {
             // 4. Process each row in isolated REQUIRES_NEW transactions
             for (PreExtractedRow preExt : preExtractedRows) {
                 // Build Extracted PERSON Entity
-                GeminiExtractionClient.ExtractedEntity personEntity = new GeminiExtractionClient.ExtractedEntity(
+                IngestionModels.ExtractedEntity personEntity = new IngestionModels.ExtractedEntity(
                         "PERSON",
                         preExt.fullName(),
                         preExt.email(),
@@ -218,13 +219,13 @@ public class ExtractionJobWorker {
                         Collections.emptyList(), // Empty expertise tags initially
                         preExt.dynamicAttributes());
 
-                List<GeminiExtractionClient.ExtractedEntity> rowEntities = new ArrayList<>();
+                List<IngestionModels.ExtractedEntity> rowEntities = new ArrayList<>();
                 rowEntities.add(personEntity);
 
                 // Build Extracted ORGANIZATION Entity
                 if (preExt.organization() != null && !preExt.organization().isEmpty()) {
                     String domain = extractEmailDomain(preExt.email());
-                    GeminiExtractionClient.ExtractedEntity orgEntity = new GeminiExtractionClient.ExtractedEntity(
+                    IngestionModels.ExtractedEntity orgEntity = new IngestionModels.ExtractedEntity(
                             "ORGANIZATION",
                             null,
                             null,
@@ -242,7 +243,7 @@ public class ExtractionJobWorker {
                     rowEntities.add(orgEntity);
                 }
 
-                GeminiExtractionClient.BatchRowResult singleRowResult = new GeminiExtractionClient.BatchRowResult(
+                IngestionModels.BatchRowResult singleRowResult = new IngestionModels.BatchRowResult(
                         preExt.rowNumber(), rowEntities);
 
                 try {

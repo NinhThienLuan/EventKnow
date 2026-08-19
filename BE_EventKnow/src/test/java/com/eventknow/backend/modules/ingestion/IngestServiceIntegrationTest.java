@@ -20,6 +20,8 @@ import org.mockito.Mockito;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.mock.mockito.MockBean;
+import com.eventknow.backend.integration.llm.LlmProviderClient;
+import com.eventknow.backend.integration.llm.EnrichedTaxonomyDto;
 
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
@@ -28,8 +30,6 @@ import java.util.*;
 
 import static org.junit.jupiter.api.Assertions.*;
 import static org.mockito.ArgumentMatchers.any;
-import static org.mockito.ArgumentMatchers.anyInt;
-import static org.mockito.ArgumentMatchers.anyString;
 
 @SpringBootTest
 public class IngestServiceIntegrationTest {
@@ -77,7 +77,7 @@ public class IngestServiceIntegrationTest {
         private EventResolutionService eventResolutionService;
 
         @MockBean
-        private GeminiExtractionClient geminiExtractionClient;
+        private LlmProviderClient llmProviderClient;
 
         private byte[] excelBytes;
 
@@ -142,17 +142,13 @@ public class IngestServiceIntegrationTest {
                 // 1. Setup mock response for Gemini client matching the structured JSON
                 // extraction schema specifications
 
-                GeminiExtractionClient.LabeledRowResult lr1 = new GeminiExtractionClient.LabeledRowResult(
+                EnrichedTaxonomyDto lr1 = new EnrichedTaxonomyDto(
                                 0, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
-                GeminiExtractionClient.LabeledRowResult lr2 = new GeminiExtractionClient.LabeledRowResult(
+                EnrichedTaxonomyDto lr2 = new EnrichedTaxonomyDto(
                                 1, List.of("GREENTECH"), List.of("Organic"), "GUEST");
 
-                GeminiExtractionClient.GeminiLabelingResponse mockGeminiResp = new GeminiExtractionClient.GeminiLabelingResponse(
-                                List.of(lr1, lr2));
-
-                Mockito.when(geminiExtractionClient.labelBatch(any(), anyString(), anyString(), anyInt(),
-                                anyInt()))
-                                .thenReturn(mockGeminiResp);
+                Mockito.when(llmProviderClient.extractTaxonomy(any()))
+                                .thenReturn(List.of(lr1, lr2));
 
                 // 2. Clear pre-existing profiles/orgs
                 orgRepositoryCheckReset();
@@ -558,15 +554,12 @@ public class IngestServiceIntegrationTest {
                         multiSheetExcelBytes = bos.toByteArray();
                 }
 
-                // Setup Mock Gemini responses
-                GeminiExtractionClient.LabeledRowResult lr1 = new GeminiExtractionClient.LabeledRowResult(
+                EnrichedTaxonomyDto lr1 = new EnrichedTaxonomyDto(
                                 2, List.of("BLOCKCHAIN"), List.of("Crypto"), "GUEST");
-                GeminiExtractionClient.LabeledRowResult lr2 = new GeminiExtractionClient.LabeledRowResult(
+                EnrichedTaxonomyDto lr2 = new EnrichedTaxonomyDto(
                                 2, List.of("AI_ML"), List.of("DeepLearning"), "SPEAKER");
-                GeminiExtractionClient.GeminiLabelingResponse mockGeminiResp = new GeminiExtractionClient.GeminiLabelingResponse(
-                                List.of(lr1, lr2));
-                Mockito.when(geminiExtractionClient.labelBatch(any(), anyString(), anyString(), anyInt(), anyInt()))
-                                .thenReturn(mockGeminiResp);
+                Mockito.when(llmProviderClient.extractTaxonomy(any()))
+                                .thenReturn(List.of(lr1, lr2));
 
                 orgRepositoryCheckReset();
 
