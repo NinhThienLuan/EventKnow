@@ -54,12 +54,16 @@ export async function fetchAttendees(filters: {
     role?: string;
     status?: string;
     academicTitle?: string;
-} = {}): Promise<AttendeeProfile[]> {
+    page?: number;
+    size?: number;
+} = {}): Promise<{ content: AttendeeProfile[]; totalPages: number; totalElements: number }> {
     const queryParams = new URLSearchParams();
     if (filters.search) queryParams.append('search', filters.search);
     if (filters.role) queryParams.append('role', filters.role);
     if (filters.status) queryParams.append('status', filters.status);
     if (filters.academicTitle) queryParams.append('academicTitle', filters.academicTitle);
+    if (filters.page !== undefined) queryParams.append('page', String(filters.page));
+    if (filters.size !== undefined) queryParams.append('size', String(filters.size));
 
     const response = await fetch(`/api/attendees?${queryParams.toString()}`, {
         method: 'GET',
@@ -71,7 +75,7 @@ export async function fetchAttendees(filters: {
     }
 
     const json = await response.json();
-    return json.data || [];
+    return json.data || { content: [], totalPages: 0, totalElements: 0 };
 }
 
 // Fetch single attendee detail (resolves 302 automatically by fetch client)
@@ -110,10 +114,14 @@ export async function updateAttendeeStatus(id: string, status: string): Promise<
 export async function fetchOrganizations(filters: {
     search?: string;
     category?: string;
-} = {}): Promise<OrganizationProfile[]> {
+    page?: number;
+    size?: number;
+} = {}): Promise<{ content: OrganizationProfile[]; totalPages: number; totalElements: number }> {
     const queryParams = new URLSearchParams();
     if (filters.search) queryParams.append('search', filters.search);
     if (filters.category) queryParams.append('category', filters.category);
+    if (filters.page !== undefined) queryParams.append('page', String(filters.page));
+    if (filters.size !== undefined) queryParams.append('size', String(filters.size));
 
     const response = await fetch(`/api/organizations?${queryParams.toString()}`, {
         method: 'GET',
@@ -125,7 +133,7 @@ export async function fetchOrganizations(filters: {
     }
 
     const json = await response.json();
-    return json.data || [];
+    return json.data || { content: [], totalPages: 0, totalElements: 0 };
 }
 
 // Fetch organization detail
@@ -144,8 +152,18 @@ export async function fetchOrganizationDetail(id: string): Promise<OrganizationP
 }
 
 // Fetch duplicate candidate pairs for PERSON or ORGANIZATION
-export async function fetchDuplicateCandidates(entityType: 'PERSON' | 'ORGANIZATION', threshold: number = 0.4): Promise<DuplicateCandidate[]> {
-    const query = new URLSearchParams({ entityType, threshold: String(threshold) });
+export async function fetchDuplicateCandidates(
+    entityType: 'PERSON' | 'ORGANIZATION',
+    threshold: number = 0.4,
+    page: number = 0,
+    size: number = 10
+): Promise<{ content: DuplicateCandidate[]; totalPages: number; totalElements: number }> {
+    const query = new URLSearchParams({
+        entityType,
+        threshold: String(threshold),
+        page: String(page),
+        size: String(size)
+    });
     const response = await fetch(`/api/identity/duplicates?${query.toString()}`, {
         method: 'GET',
         credentials: 'include',
@@ -156,7 +174,7 @@ export async function fetchDuplicateCandidates(entityType: 'PERSON' | 'ORGANIZAT
     }
 
     const json = await response.json();
-    return json.data || [];
+    return json.data || { content: [], totalPages: 0, totalElements: 0 };
 }
 
 // Merge secondary entity into primary canonical entity

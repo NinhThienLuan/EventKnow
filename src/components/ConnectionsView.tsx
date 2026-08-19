@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Network,
   Search,
@@ -45,77 +45,55 @@ export const ConnectionsView: React.FC<ConnectionsViewProps> = ({ language }) =>
   const [filterType, setFilterType] = useState<'ALL' | 'PERSON' | 'ORG'>('ALL');
   const [selectedConnection, setSelectedConnection] = useState<EntityConnection | null>(null);
   const [newNote, setNewNote] = useState('');
+  const [connections, setConnections] = useState<EntityConnection[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
 
-  const [connections, setConnections] = useState<EntityConnection[]>([
-    {
-      id: 'CONN-101',
-      sourceName: 'GS.TS. Nguyễn Văn An',
-      sourceRole: 'Diễn giả chính',
-      sourceType: 'PERSON',
-      targetName: 'Tập đoàn Điện lực Việt Nam (EVN)',
-      targetRole: 'Đơn vị Tài trợ Gold',
-      targetType: 'ORG',
-      coOccurrenceCount: 4,
-      lastEventDate: '15/11/2023',
-      eventsList: ['Hội thảo Năng lượng Xanh Q3 2023', 'Diễn đàn Hạ tầng Năng lượng 2023', 'Hội nghị Khoa học Điện lực', 'TechExpo 2022'],
-      aiSummary: language === 'VN'
-        ? 'GS.TS. Nguyễn Văn An đã tham gia 4 sự kiện do EVN chủ trì hoặc tài trợ từ năm 2022-2023 với vai trò báo cáo viên chính.'
-        : 'Prof. Dr. Nguyen Van An attended 4 events hosted or sponsored by EVN from 2022-2023 as keynote speaker.',
-      followUpStatus: 'CONFIRMED',
-      notes: ['Đã gọi điện xác nhận tham dự Diễn đàn Mới 2026', 'Đã nhận bài phát biểu sơ bộ']
-    },
-    {
-      id: 'CONN-102',
-      sourceName: 'PGS.TS. Trần Thị Bình',
-      sourceRole: 'Chuyên gia tư vấn',
-      sourceType: 'PERSON',
-      targetName: 'ThS. Lê Hoàng Nam',
-      targetRole: 'Khách mời VIP',
-      targetType: 'PERSON',
-      coOccurrenceCount: 3,
-      lastEventDate: '20/09/2023',
-      eventsList: ['Diễn đàn Kinh tế Số 2023', 'Hội thảo AI & Quản trị Doanh nghiệp', 'Workshop Chuyển đổi số Q1'],
-      aiSummary: language === 'VN'
-        ? 'PGS.TS. Trần Thị Bình và ThS. Lê Hoàng Nam cùng đồng xuất hiện tại 3 hội thảo lớn về Chuyển đổi số & AI trong 2 năm qua.'
-        : 'Assoc. Prof. Tran Thi Binh and Mr. Le Hoang Nam co-attended 3 major seminars on Digital Transformation & AI in the past 2 years.',
-      followUpStatus: 'CONTACTED',
-      notes: ['Gửi thư mời qua email công vụ ngày 05/08']
-    },
-    {
-      id: 'CONN-103',
-      sourceName: 'Viện Nghiên cứu Chiến lược AI',
-      sourceRole: 'Đơn vị Bảo trợ Chuyên môn',
-      sourceType: 'ORG',
-      targetName: 'Tổng Công ty CNTT Việt Nam',
-      targetRole: 'Đối tác Tổ chức',
-      targetType: 'ORG',
-      coOccurrenceCount: 5,
-      lastEventDate: '02/12/2023',
-      eventsList: ['AI Summit 2023', 'Hội nghị Thượng đỉnh Dữ liệu', 'TechForum Q2', 'Sự kiện Kết nối AI', 'Workshop Cloud 2022'],
-      aiSummary: language === 'VN'
-        ? 'Viện Nghiên cứu AI và Tổng công ty CNTT có mối quan hệ hợp tác chiến lược liên tục qua 5 sự kiện cấp quốc gia.'
-        : 'AI Research Institute and VN IT Corp maintain strategic collaboration across 5 national summit events.',
-      followUpStatus: 'NOT_CONTACTED',
-      notes: []
-    },
-    {
-      id: 'CONN-104',
-      sourceName: 'TS. Phạm Minh Tuấn',
-      sourceRole: 'Diễn giả',
-      sourceType: 'PERSON',
-      targetName: 'Trường Đại học Bách Khoa',
-      targetRole: 'Đơn vị Đồng tổ chức',
-      targetType: 'ORG',
-      coOccurrenceCount: 2,
-      lastEventDate: '18/06/2023',
-      eventsList: ['Ngày hội Khởi nghiệp Sinh viên 2023', 'Hội thảo Công nghệ Vật liệu Mới'],
-      aiSummary: language === 'VN'
-        ? 'TS. Phạm Minh Tuấn là cựu diễn giả đại diện hợp tác với ĐH Bách Khoa trong các sự kiện khởi nghiệp.'
-        : 'Dr. Pham Minh Tuan represented startup forum keynotes in partnership with Polytechnic University.',
-      followUpStatus: 'DECLINED',
-      notes: ['Đại biểu báo bận công tác nước ngoài tháng này']
-    }
-  ]);
+  useEffect(() => {
+    const loadConnections = async () => {
+      try {
+        setIsLoading(true);
+        const res = await fetch('/api/connections', { credentials: 'include' });
+        if (!res.ok) throw new Error('Failed to fetch connections');
+        const json = await res.json();
+
+        const mappedList: EntityConnection[] = (json.data || []).map((item: any) => {
+          let mappedStatus: EntityConnection['followUpStatus'] = 'NOT_CONTACTED';
+          if (item.followUpStatus === 'CHUA_LIEN_HE') mappedStatus = 'NOT_CONTACTED';
+          else if (item.followUpStatus === 'DA_LIEN_HE') mappedStatus = 'CONTACTED';
+          else if (item.followUpStatus === 'TU_CHOI') mappedStatus = 'DECLINED';
+          else if (item.followUpStatus) mappedStatus = item.followUpStatus;
+
+          const rel = item.relationshipType || 'Đồng hành';
+          const defaultSummary = language === 'VN'
+            ? `${item.sourceName} và ${item.targetName} hoạt động qua "${rel}" với tần suất đồng xuất hiện ${item.coOccurrenceCount || item.interactionCount} lần.`
+            : `${item.sourceName} and ${item.targetName} share a "${rel}" relationship with ${item.coOccurrenceCount || item.interactionCount} co-occurrence events.`;
+
+          return {
+            id: item.id,
+            sourceName: item.sourceName,
+            sourceRole: rel,
+            sourceType: item.sourceType === 'ORG' ? 'ORG' : 'PERSON',
+            targetName: item.targetName,
+            targetRole: 'Đối tác',
+            targetType: item.targetType === 'ORG' ? 'ORG' : 'PERSON',
+            coOccurrenceCount: item.interactionCount || 0,
+            lastEventDate: item.lastEventDate || 'Gần đây',
+            eventsList: item.sharedEventNames || [],
+            aiSummary: defaultSummary,
+            followUpStatus: mappedStatus,
+            notes: item.notes || []
+          };
+        });
+
+        setConnections(mappedList);
+      } catch (err) {
+        console.error('Failed to load connections:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+    loadConnections();
+  }, [language]);
 
   const filteredConnections = connections.filter(c => {
     const matchesSearch =
@@ -217,9 +195,8 @@ export const ConnectionsView: React.FC<ConnectionsViewProps> = ({ language }) =>
               <div
                 key={c.id}
                 onClick={() => setSelectedConnection(c)}
-                className={`bg-white border rounded-xl p-4 transition-all cursor-pointer shadow-2xs hover:border-[#1b4b66] ${
-                  isSelected ? 'border-[#00344c] ring-2 ring-[#00344c]/10 bg-[#edf4ff]/20' : 'border-[#DCE1E6]'
-                }`}
+                className={`bg-white border rounded-xl p-4 transition-all cursor-pointer shadow-2xs hover:border-[#1b4b66] ${isSelected ? 'border-[#00344c] ring-2 ring-[#00344c]/10 bg-[#edf4ff]/20' : 'border-[#DCE1E6]'
+                  }`}
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="flex items-center gap-3 flex-1 min-w-0">
@@ -317,44 +294,40 @@ export const ConnectionsView: React.FC<ConnectionsViewProps> = ({ language }) =>
               <div className="grid grid-cols-2 gap-2 text-xs">
                 <button
                   onClick={() => handleUpdateStatus('NOT_CONTACTED')}
-                  className={`p-2 rounded border text-center font-semibold transition-all cursor-pointer ${
-                    selectedConnection.followUpStatus === 'NOT_CONTACTED'
+                  className={`p-2 rounded border text-center font-semibold transition-all cursor-pointer ${selectedConnection.followUpStatus === 'NOT_CONTACTED'
                       ? 'bg-slate-800 text-white border-slate-800'
                       : 'bg-white text-slate-700 border-slate-200 hover:bg-slate-50'
-                  }`}
+                    }`}
                 >
                   {language === 'VN' ? 'Chưa liên hệ' : 'Not Contacted'}
                 </button>
 
                 <button
                   onClick={() => handleUpdateStatus('CONTACTED')}
-                  className={`p-2 rounded border text-center font-semibold transition-all cursor-pointer ${
-                    selectedConnection.followUpStatus === 'CONTACTED'
+                  className={`p-2 rounded border text-center font-semibold transition-all cursor-pointer ${selectedConnection.followUpStatus === 'CONTACTED'
                       ? 'bg-blue-600 text-white border-blue-600'
                       : 'bg-white text-blue-700 border-blue-200 hover:bg-blue-50'
-                  }`}
+                    }`}
                 >
                   {language === 'VN' ? 'Đã liên hệ' : 'Contacted'}
                 </button>
 
                 <button
                   onClick={() => handleUpdateStatus('CONFIRMED')}
-                  className={`p-2 rounded border text-center font-semibold transition-all cursor-pointer ${
-                    selectedConnection.followUpStatus === 'CONFIRMED'
+                  className={`p-2 rounded border text-center font-semibold transition-all cursor-pointer ${selectedConnection.followUpStatus === 'CONFIRMED'
                       ? 'bg-emerald-600 text-white border-emerald-600'
                       : 'bg-white text-emerald-700 border-emerald-200 hover:bg-emerald-50'
-                  }`}
+                    }`}
                 >
                   {language === 'VN' ? 'Đã xác nhận' : 'Confirmed'}
                 </button>
 
                 <button
                   onClick={() => handleUpdateStatus('DECLINED')}
-                  className={`p-2 rounded border text-center font-semibold transition-all cursor-pointer ${
-                    selectedConnection.followUpStatus === 'DECLINED'
+                  className={`p-2 rounded border text-center font-semibold transition-all cursor-pointer ${selectedConnection.followUpStatus === 'DECLINED'
                       ? 'bg-rose-600 text-white border-rose-600'
                       : 'bg-white text-rose-700 border-rose-200 hover:bg-rose-50'
-                  }`}
+                    }`}
                 >
                   {language === 'VN' ? 'Từ chối' : 'Declined'}
                 </button>

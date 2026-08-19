@@ -13,6 +13,7 @@ import {
   Edit
 } from 'lucide-react';
 import { translations } from '../data/translations';
+import { PaginationControls } from './common/PaginationControls';
 
 interface MappingViewProps {
   language: 'VN' | 'EN';
@@ -68,6 +69,9 @@ export const MappingView: React.FC<MappingViewProps> = ({ language }) => {
   const [newPath, setNewPath] = useState('');
   const [newDept, setNewDept] = useState('Phòng Pháp chế');
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 5;
+
   const handleAddMapping = () => {
     if (!newPath.trim()) return;
     const item: DepartmentFolderMapping = {
@@ -80,11 +84,17 @@ export const MappingView: React.FC<MappingViewProps> = ({ language }) => {
     };
     setMappings([...mappings, item]);
     setNewPath('');
+    setCurrentPage(1);
   };
 
   const handleDelete = (id: string) => {
     setMappings(mappings.filter(m => m.id !== id));
+    setCurrentPage(1);
   };
+
+  const totalPages = Math.ceil(mappings.length / pageSize);
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedMappings = mappings.slice(startIndex, startIndex + pageSize);
 
   return (
     <div className="w-full max-w-7xl mx-auto p-4 lg:p-6 space-y-6 antialiased font-body animate-fade-in">
@@ -161,7 +171,7 @@ export const MappingView: React.FC<MappingViewProps> = ({ language }) => {
             </tr>
           </thead>
           <tbody className="divide-y divide-[#DCE1E6]">
-            {mappings.map(map => (
+            {paginatedMappings.map(map => (
               <tr key={map.id} className="hover:bg-[#F8FAFC] transition-colors">
                 <td className="py-3 px-4 font-mono text-[#72787e]">{map.id}</td>
                 <td className="py-3 px-4 font-mono text-[#0f1d28] font-semibold">
@@ -203,7 +213,16 @@ export const MappingView: React.FC<MappingViewProps> = ({ language }) => {
             ))}
           </tbody>
         </table>
+
+        <PaginationControls
+          currentPage={currentPage}
+          totalPages={totalPages}
+          totalElements={mappings.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+        />
       </div>
     </div>
   );
 };
+

@@ -20,6 +20,7 @@ import {
   mergeEntities,
   splitEntities
 } from '../lib/identityApi';
+import { PaginationControls } from './common/PaginationControls';
 
 interface MergeSplitViewProps {
   language: 'VN' | 'EN';
@@ -69,6 +70,11 @@ export const MergeSplitView: React.FC<MergeSplitViewProps> = ({ language, isAdmi
   const [filterType, setFilterType] = useState<'ALL' | 'PERSON' | 'ORG' | 'EVENT'>('ALL');
 
   const [candidates, setCandidates] = useState<MergeCandidate[]>([]);
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
+  const [totalElements, setTotalElements] = useState(0);
+  const [pageSize] = useState(6);
+
   const [mergeLogs, setMergeLogs] = useState<any[]>([
     {
       id: 'b5be9d33-4f91-4df2-a384-633095392e21',
@@ -82,12 +88,38 @@ export const MergeSplitView: React.FC<MergeSplitViewProps> = ({ language, isAdmi
   ]);
 
   useEffect(() => {
+    setPage(0);
+  }, [filterType, searchTerm]);
+
+  useEffect(() => {
     const loadAllDuplicates = async () => {
       try {
-        const [peopleDups, orgDups] = await Promise.all([
-          fetchDuplicateCandidates('PERSON', 0.4),
-          fetchDuplicateCandidates('ORGANIZATION', 0.4)
-        ]);
+        let peopleDups: any[] = [];
+        let orgDups: any[] = [];
+        let totalP = 0;
+        let totalE = 0;
+
+        if (filterType === 'ALL' || filterType === 'PERSON') {
+          const pPage = filterType === 'PERSON' ? page : 0;
+          const pSize = filterType === 'PERSON' ? pageSize : 50;
+          const res = await fetchDuplicateCandidates('PERSON', 0.4, pPage, pSize);
+          peopleDups = res.content || [];
+          if (filterType === 'PERSON') {
+            totalP = res.totalPages;
+            totalE = res.totalElements;
+          }
+        }
+
+        if (filterType === 'ALL' || filterType === 'ORG') {
+          const oPage = filterType === 'ORG' ? page : 0;
+          const oSize = filterType === 'ORG' ? pageSize : 50;
+          const res = await fetchDuplicateCandidates('ORGANIZATION', 0.4, oPage, oSize);
+          orgDups = res.content || [];
+          if (filterType === 'ORG') {
+            totalP = res.totalPages;
+            totalE = res.totalElements;
+          }
+        }
 
         const mappedPeople = peopleDups.map((dup, idx) => ({
           id: `DUP-P-${idx}-${dup.idA.slice(0, 4)}`,
@@ -131,13 +163,23 @@ export const MergeSplitView: React.FC<MergeSplitViewProps> = ({ language, isAdmi
           status: 'PENDING_REVIEW' as const
         }));
 
-        setCandidates([...mappedPeople, ...mappedOrgs]);
+        let combined = [...mappedPeople, ...mappedOrgs];
+
+        if (filterType === 'ALL') {
+          totalE = combined.length;
+          totalP = Math.ceil(totalE / pageSize);
+          combined = combined.slice(page * pageSize, (page + 1) * pageSize);
+        }
+
+        setCandidates(combined);
+        setTotalPages(totalP);
+        setTotalElements(totalE);
       } catch (err) {
         console.error('Failed to load duplicate candidates:', err);
       }
     };
     loadAllDuplicates();
-  }, []);
+  }, [filterType, page, pageSize]);
 
   const handleConfirmMerge = async (id: string) => {
     const candidate = candidates.find(c => c.id === id);
@@ -395,6 +437,17 @@ export const MergeSplitView: React.FC<MergeSplitViewProps> = ({ language, isAdmi
               </div>
             </div>
           ))}
+
+          {/* Pagination Controls */}
+          {totalPages > 1 && (
+            <div className="pt-2">
+              <PaginationControls
+                currentPage={page + 1}
+                totalPages={totalPages}
+                onPageChange={(p) => setPage(p - 1)}
+              />
+            </div>
+          )}
         </div>
       )}
 

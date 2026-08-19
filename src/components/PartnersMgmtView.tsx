@@ -39,6 +39,7 @@ import {
   fetchOrganizationDetail,
   updateAttendeeStatus
 } from '../lib/identityApi';
+import { PaginationControls } from './common/PaginationControls';
 
 interface PartnersMgmtViewProps {
   language: 'VN' | 'EN';
@@ -60,10 +61,22 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'CHUA_LIEN_HE' | 'DA_LIEN_HE' | 'DANG_HOP_TAC' | 'TU_CHOI'>('ALL');
   const [academicFilter, setAcademicFilter] = useState<string>('ALL');
 
+  // Ind Pagination
+  const [attendeesPage, setAttendeesPage] = useState(0);
+  const [attendeesTotalPages, setAttendeesTotalPages] = useState(0);
+  const [attendeesTotalElements, setAttendeesTotalElements] = useState(0);
+  const [attendeesSize] = useState(9);
+
   // Organization Filters State
   const [organizations, setOrganizations] = useState<OrganizationProfile[]>([]);
   const [orgSearchQuery, setOrgSearchQuery] = useState('');
   const [orgCategoryFilter, setOrgCategoryFilter] = useState<string>('ALL');
+
+  // Org Pagination
+  const [orgsPage, setOrgsPage] = useState(0);
+  const [orgsTotalPages, setOrgsTotalPages] = useState(0);
+  const [orgsTotalElements, setOrgsTotalElements] = useState(0);
+  const [orgsSize] = useState(9);
 
   // Profile Detail Modal State
   const [selectedAttendee, setSelectedAttendee] = useState<AttendeeProfile | null>(null);
@@ -72,40 +85,57 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
   // Note Input State
   const [newNoteText, setNewNoteText] = useState('');
 
+  // Reset page when filters change
+  useEffect(() => {
+    setAttendeesPage(0);
+  }, [indSearchQuery, roleFilter, statusFilter, academicFilter]);
+
+  useEffect(() => {
+    setOrgsPage(0);
+  }, [orgSearchQuery, orgCategoryFilter]);
+
   // -----------------------
   // API Fetch Effects
   // -----------------------
   useEffect(() => {
     const loadAttendees = async () => {
       try {
-        const data = await fetchAttendees({
+        const res = await fetchAttendees({
           search: indSearchQuery,
           role: roleFilter === 'ALL' ? undefined : roleFilter,
           status: statusFilter === 'ALL' ? undefined : statusFilter,
-          academicTitle: academicFilter === 'ALL' ? undefined : academicFilter
+          academicTitle: academicFilter === 'ALL' ? undefined : academicFilter,
+          page: attendeesPage,
+          size: attendeesSize
         });
-        setAttendees(data);
+        setAttendees(res.content);
+        setAttendeesTotalPages(res.totalPages);
+        setAttendeesTotalElements(res.totalElements);
       } catch (err) {
         console.error('Failed to load attendees:', err);
       }
     };
     loadAttendees();
-  }, [indSearchQuery, roleFilter, statusFilter, academicFilter]);
+  }, [indSearchQuery, roleFilter, statusFilter, academicFilter, attendeesPage, attendeesSize]);
 
   useEffect(() => {
     const loadOrgs = async () => {
       try {
-        const data = await fetchOrganizations({
+        const res = await fetchOrganizations({
           search: orgSearchQuery,
-          category: orgCategoryFilter === 'ALL' ? undefined : orgCategoryFilter
+          category: orgCategoryFilter === 'ALL' ? undefined : orgCategoryFilter,
+          page: orgsPage,
+          size: orgsSize
         });
-        setOrganizations(data);
+        setOrganizations(res.content);
+        setOrgsTotalPages(res.totalPages);
+        setOrgsTotalElements(res.totalElements);
       } catch (err) {
         console.error('Failed to load organizations:', err);
       }
     };
     loadOrgs();
-  }, [orgSearchQuery, orgCategoryFilter]);
+  }, [orgSearchQuery, orgCategoryFilter, orgsPage, orgsSize]);
 
   // -----------------------
   // Handlers for Attendees
@@ -316,12 +346,12 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
           <div className="pt-2 flex flex-wrap items-center gap-4 text-xs font-mono text-amber-200/90">
             <span className="flex items-center gap-1.5">
               <Users className="w-4 h-4 text-amber-400" />
-              {attendees.length} {language === 'VN' ? 'Cá nhân (Chuyên gia/Diễn giả/Khách)' : 'Individuals'}
+              {attendeesTotalElements} {language === 'VN' ? 'Cá nhân (Chuyên gia/Diễn giả/Khách)' : 'Individuals'}
             </span>
             <span>•</span>
             <span className="flex items-center gap-1.5">
               <Building2 className="w-4 h-4 text-amber-400" />
-              {organizations.length} {language === 'VN' ? 'Tổ chức & Doanh nghiệp' : 'Organizations'}
+              {orgsTotalElements} {language === 'VN' ? 'Tổ chức & Doanh nghiệp' : 'Organizations'}
             </span>
             <span>•</span>
             <span className="flex items-center gap-1.5">
@@ -346,7 +376,7 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
             <Users className="w-4 h-4 text-[#1b4b66]" />
             <span>{language === 'VN' ? 'Cá nhân (Khách mời, Diễn giả, Đối tác)' : 'Individuals & Speakers'}</span>
             <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-amber-100 text-amber-800">
-              {attendees.length}
+              {attendeesTotalElements}
             </span>
           </button>
 
@@ -360,7 +390,7 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
             <Building2 className="w-4 h-4 text-[#5B4B8A]" />
             <span>{language === 'VN' ? 'Tổ chức & Doanh nghiệp' : 'Organizations'}</span>
             <span className="ml-1 px-1.5 py-0.2 rounded-full text-[10px] font-mono bg-blue-100 text-blue-800">
-              {organizations.length}
+              {orgsTotalElements}
             </span>
           </button>
         </div>
@@ -493,7 +523,7 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
               </div>
 
               <div className="text-[11px] font-mono text-[#72787e]">
-                {language === 'VN' ? `Hiển thị ${filteredAttendees.length} / ${attendees.length} cá nhân` : `Showing ${filteredAttendees.length} / ${attendees.length} individuals`}
+                {language === 'VN' ? `Hiển thị ${filteredAttendees.length} / ${attendeesTotalElements} cá nhân` : `Showing ${filteredAttendees.length} / ${attendeesTotalElements} individuals`}
               </div>
             </div>
           </div>
@@ -590,6 +620,17 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
               </div>
             )}
           </div>
+
+          {/* Individual Pagination Controls */}
+          {attendeesTotalPages > 1 && (
+            <div className="pt-2">
+              <PaginationControls
+                currentPage={attendeesPage + 1}
+                totalPages={attendeesTotalPages}
+                onPageChange={(page) => setAttendeesPage(page - 1)}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -712,6 +753,17 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
               </div>
             )}
           </div>
+
+          {/* Organization Pagination Controls */}
+          {orgsTotalPages > 1 && (
+            <div className="pt-2">
+              <PaginationControls
+                currentPage={orgsPage + 1}
+                totalPages={orgsTotalPages}
+                onPageChange={(page) => setOrgsPage(page - 1)}
+              />
+            </div>
+          )}
         </div>
       )}
 

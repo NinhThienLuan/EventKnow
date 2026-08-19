@@ -28,12 +28,26 @@ public class IdentityController {
     @GetMapping("/duplicates")
     public ResponseEntity<Map<String, Object>> getDuplicates(
             @RequestParam("entityType") String entityType,
-            @RequestParam(value = "threshold", defaultValue = "0.4") double threshold) {
+            @RequestParam(value = "threshold", defaultValue = "0.4") double threshold,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "10") int size) {
 
         List<DuplicateCandidateProjection> duplicates = identityService.findDuplicates(entityType, threshold);
 
+        int totalElements = duplicates.size();
+        int totalPages = (int) Math.ceil((double) totalElements / size);
+        int fromIndex = Math.min(page * size, totalElements);
+        int toIndex = Math.min(fromIndex + size, totalElements);
+        List<DuplicateCandidateProjection> paged = duplicates.subList(fromIndex, toIndex);
+
         Map<String, Object> response = new HashMap<>();
-        response.put("data", duplicates);
+        response.put("status", "success");
+        response.put("data", Map.of(
+                "content", paged,
+                "totalPages", totalPages,
+                "totalElements", totalElements,
+                "size", size,
+                "number", page));
         return ResponseEntity.ok(response);
     }
 

@@ -19,6 +19,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { translations } from '../data/translations';
+import { PaginationControls } from './common/PaginationControls';
 
 interface ExtractionJobsViewProps {
   language: 'VN' | 'EN';
@@ -471,40 +472,13 @@ export const ExtractionJobsView: React.FC<ExtractionJobsViewProps> = ({ language
               : `Showing ${Math.min((currentPage - 1) * 10 + 1, totalElements)}-${Math.min(currentPage * 10, totalElements)} of ${totalElements} jobs`}
           </span>
 
-          <div className="flex items-center gap-1">
-            <button
-              onClick={() => setCurrentPage(prev => Math.max(prev - 1, 1))}
-              disabled={currentPage === 1}
-              className="p-1 text-[#72787e] hover:text-[#00344c] disabled:opacity-30 rounded cursor-pointer"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            {Array.from({ length: totalPages }, (_, i) => i + 1)
-              .filter(p => p === 1 || p === totalPages || Math.abs(p - currentPage) <= 1)
-              .map((p, idx, arr) => {
-                const prev = arr[idx - 1];
-                const showDots = prev && p - prev > 1;
-                return (
-                  <React.Fragment key={p}>
-                    {showDots && <span className="px-1 text-[#72787e]">...</span>}
-                    <button
-                      onClick={() => setCurrentPage(p)}
-                      className={`w-6 h-6 rounded flex items-center justify-center font-bold text-xs ${currentPage === p ? 'bg-[#00344c] text-white' : 'hover:bg-[#EEF1F4] text-[#0f1d28]'
-                        }`}
-                    >
-                      {p}
-                    </button>
-                  </React.Fragment>
-                );
-              })}
-            <button
-              onClick={() => setCurrentPage(prev => Math.min(prev + 1, totalPages))}
-              disabled={currentPage === totalPages}
-              className="p-1 text-[#72787e] hover:text-[#00344c] disabled:opacity-30 rounded cursor-pointer"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
+          {totalPages > 1 && (
+            <PaginationControls
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={(page) => setCurrentPage(page)}
+            />
+          )}
         </div>
       </div>
     </div>

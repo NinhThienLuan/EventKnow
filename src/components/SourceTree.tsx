@@ -99,7 +99,6 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
     { id: 'home', label: t.navHome, icon: Home },
     { id: 'dashboard', label: t.navDashboard, icon: LayoutDashboard },
     { id: 'partners', label: t.navPartners, icon: Users },
-    { id: 'reports', label: t.navReports, icon: FileText },
     { id: 'connections', label: t.navConnections, icon: Network },
     { id: 'upload', label: t.navUpload, icon: Upload }
   ];
@@ -157,9 +156,6 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
                     key={item.id}
                     onClick={() => {
                       if (onSelectNavView) onSelectNavView(item.id);
-                      if (item.id === 'reports') {
-                        setActiveTab('DATA');
-                      }
                     }}
                     className={`w-full flex items-center gap-2.5 px-3 py-2 rounded-md text-xs font-medium transition-all cursor-pointer ${isActive
                       ? 'bg-white text-[#00344c] font-semibold border-l-3 border-[#1b4b66] shadow-2xs'
@@ -326,8 +322,8 @@ export const SourceTree: React.FC<SourceTreeProps> = ({
                                                     key={evt.eventId}
                                                     onClick={() => onSelectSource(evt.eventId)}
                                                     className={`flex items-center gap-1.5 py-1 px-2 rounded cursor-pointer transition-colors ${isSelected
-                                                        ? 'bg-white text-[#1b4b66] font-semibold border-l-2 border-[#1b4b66]'
-                                                        : 'text-[#555a60] hover:bg-white/50'
+                                                      ? 'bg-white text-[#1b4b66] font-semibold border-l-2 border-[#1b4b66]'
+                                                      : 'text-[#555a60] hover:bg-white/50'
                                                       }`}
                                                   >
                                                     <FileText className="w-3 h-3 text-[#72787e] shrink-0" />

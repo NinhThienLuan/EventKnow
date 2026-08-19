@@ -12,6 +12,7 @@ import {
   Play
 } from 'lucide-react';
 import { translations } from '../data/translations';
+import { PaginationControls } from './common/PaginationControls';
 
 interface AliasViewProps {
   language: 'VN' | 'EN';
@@ -48,6 +49,9 @@ export const AliasView: React.FC<AliasViewProps> = ({ language }) => {
   const [newNorm, setNewNorm] = useState<'GS' | 'PGS' | 'TS' | 'ThS' | 'CN' | 'KS' | 'KHAC'>('TS');
   const [newDesc, setNewDesc] = useState('');
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const pageSize = 5;
+
   const handleAddRule = () => {
     if (!newRaw.trim()) return;
     const rule: AliasRule = {
@@ -59,10 +63,12 @@ export const AliasView: React.FC<AliasViewProps> = ({ language }) => {
     setRules([rule, ...rules]);
     setNewRaw('');
     setNewDesc('');
+    setCurrentPage(1);
   };
 
   const handleDeleteRule = (id: string) => {
     setRules(rules.filter(r => r.id !== id));
+    setCurrentPage(1);
   };
 
   const handleRunTest = () => {
@@ -84,6 +90,10 @@ export const AliasView: React.FC<AliasViewProps> = ({ language }) => {
     r.description.toLowerCase().includes(searchTerm.toLowerCase()) ||
     r.normalizedTitle.toLowerCase().includes(searchTerm.toLowerCase())
   );
+
+  const totalPages = Math.ceil(filteredRules.length / pageSize);
+  const startIndex = (currentPage - 1) * pageSize;
+  const paginatedRules = filteredRules.slice(startIndex, startIndex + pageSize);
 
   return (
     <div className="w-full max-w-7xl mx-auto p-4 lg:p-6 space-y-6 antialiased font-body animate-fade-in">
@@ -164,7 +174,10 @@ export const AliasView: React.FC<AliasViewProps> = ({ language }) => {
                 <input
                   type="text"
                   value={searchTerm}
-                  onChange={e => setSearchTerm(e.target.value)}
+                  onChange={e => {
+                    setSearchTerm(e.target.value);
+                    setCurrentPage(1);
+                  }}
                   placeholder={language === 'VN' ? 'Lọc danh sách alias...' : 'Filter alias list...'}
                   className="w-full pl-8 pr-2 py-1 text-xs bg-white border border-[#DCE1E6] rounded text-[#0f1d28] focus:outline-none"
                 />
@@ -186,7 +199,7 @@ export const AliasView: React.FC<AliasViewProps> = ({ language }) => {
                 </tr>
               </thead>
               <tbody className="divide-y divide-[#DCE1E6]">
-                {filteredRules.map(rule => (
+                {paginatedRules.map(rule => (
                   <tr key={rule.id} className="hover:bg-[#F8FAFC] transition-colors">
                     <td className="py-2.5 px-4 font-mono text-[#72787e]">{rule.id}</td>
                     <td className="py-2.5 px-4 font-mono font-bold text-[#0f1d28]">{rule.rawString}</td>
@@ -209,6 +222,14 @@ export const AliasView: React.FC<AliasViewProps> = ({ language }) => {
                 ))}
               </tbody>
             </table>
+
+            <PaginationControls
+              currentPage={currentPage}
+              totalPages={totalPages}
+              totalElements={filteredRules.length}
+              pageSize={pageSize}
+              onPageChange={setCurrentPage}
+            />
           </div>
         </div>
 
@@ -267,3 +288,4 @@ export const AliasView: React.FC<AliasViewProps> = ({ language }) => {
     </div>
   );
 };
+

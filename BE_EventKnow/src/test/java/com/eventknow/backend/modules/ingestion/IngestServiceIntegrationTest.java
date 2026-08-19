@@ -262,14 +262,14 @@ public class IngestServiceIntegrationTest {
                 testFullIngestionFlow();
                 // Call attendees controller
                 org.springframework.http.ResponseEntity<Map<String, Object>> attResp = attendeeController
-                                .getAttendees("", null, null, "ALL", null, null, null, null, null);
+                                .getAttendees("", null, null, "ALL", null, null, null, null, null, 0, 100);
                 assertEquals(org.springframework.http.HttpStatus.OK, attResp.getStatusCode());
                 assertNotNull(attResp.getBody());
                 System.out.println("CONTROLLER ATTENDEES RESP: " + attResp.getBody());
 
                 // Call organizations controller
                 org.springframework.http.ResponseEntity<Map<String, Object>> orgResp = organizationController
-                                .getOrganizations("", "ALL");
+                                .getOrganizations("", "ALL", 0, 100);
                 assertEquals(org.springframework.http.HttpStatus.OK, orgResp.getStatusCode());
                 assertNotNull(orgResp.getBody());
                 System.out.println("CONTROLLER ORGS RESP: " + orgResp.getBody());

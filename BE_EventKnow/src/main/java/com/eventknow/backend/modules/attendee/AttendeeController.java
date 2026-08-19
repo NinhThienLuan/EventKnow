@@ -41,11 +41,14 @@ public class AttendeeController {
                         @RequestParam(value = "position", required = false) String position,
                         @RequestParam(value = "department", required = false) String department,
                         @RequestParam(value = "startDate", required = false) String startDate,
-                        @RequestParam(value = "endDate", required = false) String endDate) {
+                        @RequestParam(value = "endDate", required = false) String endDate,
+                        @RequestParam(value = "page", defaultValue = "0") int page,
+                        @RequestParam(value = "size", defaultValue = "10") int size) {
 
                 log.info(
-                                "getAttendees API called: search='{}', role='{}', status='{}', academicTitle='{}', domain='{}', position='{}', department='{}', startDate='{}', endDate='{}'",
-                                search, role, status, academicTitle, domain, position, department, startDate, endDate);
+                                "getAttendees API called: search='{}', role='{}', status='{}', academicTitle='{}', domain='{}', position='{}', department='{}', startDate='{}', endDate='{}', page={}, size={}",
+                                search, role, status, academicTitle, domain, position, department, startDate, endDate,
+                                page, size);
                 try {
                         String normalRole = (role == null || role.isEmpty() || "ALL".equalsIgnoreCase(role)) ? null
                                         : role.toUpperCase();
@@ -82,9 +85,20 @@ public class AttendeeController {
                         List<Map<String, Object>> dataList = entities.stream().map(this::mapToAttendeeSummary)
                                         .collect(Collectors.toList());
 
+                        int totalElements = dataList.size();
+                        int totalPages = (int) Math.ceil((double) totalElements / size);
+                        int fromIndex = Math.min(page * size, totalElements);
+                        int toIndex = Math.min(fromIndex + size, totalElements);
+                        List<Map<String, Object>> paged = dataList.subList(fromIndex, toIndex);
+
                         Map<String, Object> response = new HashMap<>();
                         response.put("status", "success");
-                        response.put("data", dataList);
+                        response.put("data", Map.of(
+                                        "content", paged,
+                                        "totalPages", totalPages,
+                                        "totalElements", totalElements,
+                                        "size", size,
+                                        "number", page));
                         return ResponseEntity.ok(response);
                 } catch (Exception e) {
                         log.error("Internal Server Error in getAttendees: ", e);

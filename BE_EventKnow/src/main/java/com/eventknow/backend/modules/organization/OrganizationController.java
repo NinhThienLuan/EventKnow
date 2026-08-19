@@ -29,9 +29,12 @@ public class OrganizationController {
     @GetMapping
     public ResponseEntity<Map<String, Object>> getOrganizations(
             @RequestParam(value = "search", required = false, defaultValue = "") String search,
-            @RequestParam(value = "category", required = false, defaultValue = "ALL") String category) {
+            @RequestParam(value = "category", required = false, defaultValue = "ALL") String category,
+            @RequestParam(value = "page", defaultValue = "0") int page,
+            @RequestParam(value = "size", defaultValue = "10") int size) {
 
-        log.info("getOrganizations API called: search='{}', category='{}'", search, category);
+        log.info("getOrganizations API called: search='{}', category='{}', page={}, size={}", search, category, page,
+                size);
         try {
             List<OrganizationEntity> entities = organizationRepository.searchActiveOrganizations(search);
 
@@ -49,9 +52,20 @@ public class OrganizationController {
             List<Map<String, Object>> dataList = entities.stream().map(this::mapToOrganizationSummary)
                     .collect(Collectors.toList());
 
+            int totalElements = dataList.size();
+            int totalPages = (int) Math.ceil((double) totalElements / size);
+            int fromIndex = Math.min(page * size, totalElements);
+            int toIndex = Math.min(fromIndex + size, totalElements);
+            List<Map<String, Object>> paged = dataList.subList(fromIndex, toIndex);
+
             Map<String, Object> response = new HashMap<>();
             response.put("status", "success");
-            response.put("data", dataList);
+            response.put("data", Map.of(
+                    "content", paged,
+                    "totalPages", totalPages,
+                    "totalElements", totalElements,
+                    "size", size,
+                    "number", page));
             return ResponseEntity.ok(response);
         } catch (Exception e) {
             log.error("Internal Server Error in getOrganizations: ", e);
