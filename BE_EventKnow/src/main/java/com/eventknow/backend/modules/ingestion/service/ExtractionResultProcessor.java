@@ -1,6 +1,7 @@
 package com.eventknow.backend.modules.ingestion.service;
 
 import com.eventknow.backend.modules.ingestion.normalizer.RuleBasedTitleNormalizer;
+import com.eventknow.backend.modules.ingestion.normalizer.OrganizationSanitizer;
 import com.eventknow.backend.modules.ingestion.repository.RawEventRepository;
 
 import com.eventknow.backend.model.entity.Core.AttendeeProfileEntity;
@@ -29,6 +30,7 @@ public class ExtractionResultProcessor {
     private final RawEventRepository rawEventRepository;
     private final RuleBasedTitleNormalizer titleNormalizer;
     private final jakarta.persistence.EntityManager entityManager;
+    private final OrganizationSanitizer organizationSanitizer;
 
     @Transactional
     public void processBatchRows(
@@ -69,7 +71,10 @@ public class ExtractionResultProcessor {
                     continue;
                 }
 
-                String orgKey = orgName.trim().toLowerCase();
+                String orgKey = organizationSanitizer.sanitizeAndGetNormalizedName(orgName);
+                if (orgKey == null) {
+                    continue;
+                }
                 OrganizationEntity orgEntity = localResolvedOrgs.get(orgKey);
                 if (orgEntity == null) {
                     orgEntity = resolveOrCreateOrganization(orgName.trim(), orgEnt.emailDomain(),
@@ -97,13 +102,14 @@ public class ExtractionResultProcessor {
                 String orgTextRaw = pEnt.organizationTextRaw();
                 if (orgTextRaw != null && !orgTextRaw.trim().isEmpty()) {
                     orgTextRaw = orgTextRaw.trim();
+                    String orgKeyRaw = organizationSanitizer.sanitizeAndGetNormalizedName(orgTextRaw);
                     // First try to match organization extracted on the same row / batch
-                    linkedOrg = localResolvedOrgs.get(orgTextRaw.toLowerCase());
+                    linkedOrg = (orgKeyRaw != null) ? localResolvedOrgs.get(orgKeyRaw) : null;
                     if (linkedOrg == null) {
                         // Query database or create
                         linkedOrg = resolveOrCreateOrganization(orgTextRaw, null, new HashMap<>());
-                        if (linkedOrg != null) {
-                            localResolvedOrgs.put(orgTextRaw.toLowerCase(), linkedOrg);
+                        if (linkedOrg != null && orgKeyRaw != null) {
+                            localResolvedOrgs.put(orgKeyRaw, linkedOrg);
                         }
                     }
                 } else if (!localResolvedOrgs.isEmpty()) {
@@ -111,19 +117,19 @@ public class ExtractionResultProcessor {
                     linkedOrg = localResolvedOrgs.values().iterator().next();
                 }
 
-                String email = pEnt.email();
+                String email = normalizeEmail(pEnt.email());
+                String phone = normalizePhone(pEnt.phone());
                 AttendeeProfileEntity personEntity = null;
-                if (email != null && !email.trim().isEmpty()) {
-                    personEntity = localResolvedAttendees.get(email.trim().toLowerCase());
+                if (email != null && !email.isEmpty()) {
+                    personEntity = localResolvedAttendees.get(email);
                 }
 
                 // Also support local cache lookup by (normalizedName + phone) for blank email
                 // attendees!
-                if (personEntity == null && (email == null || email.trim().isEmpty())) {
+                if (personEntity == null && (email == null || email.isEmpty())) {
                     String normName = normalizeString(fullName);
-                    String phone = pEnt.phone();
-                    if (phone != null && !phone.trim().isEmpty()) {
-                        personEntity = localResolvedAttendees.get(normName + "_" + phone.trim());
+                    if (phone != null && !phone.isEmpty()) {
+                        personEntity = localResolvedAttendees.get(normName + "_" + phone);
                     }
                 }
 
@@ -145,15 +151,14 @@ public class ExtractionResultProcessor {
                 }
 
                 if (personEntity == null) {
-                    personEntity = resolveOrCreateAttendee(pEnt, linkedOrg, profileAttributes);
+                    personEntity = resolveOrCreateAttendee(pEnt, email, phone, linkedOrg, profileAttributes);
 
-                    if (email != null && !email.trim().isEmpty()) {
-                        localResolvedAttendees.put(email.trim().toLowerCase(), personEntity);
+                    if (email != null && !email.isEmpty()) {
+                        localResolvedAttendees.put(email, personEntity);
                     } else {
                         String normName = normalizeString(fullName);
-                        String phone = pEnt.phone();
-                        if (phone != null && !phone.trim().isEmpty()) {
-                            localResolvedAttendees.put(normName + "_" + phone.trim(), personEntity);
+                        if (phone != null && !phone.isEmpty()) {
+                            localResolvedAttendees.put(normName + "_" + phone, personEntity);
                         }
                     }
                 } else {
@@ -196,19 +201,10 @@ public class ExtractionResultProcessor {
             "gmail.com", "googlemail.com", "yahoo.com", "yahoo.com.vn",
             "outlook.com", "hotmail.com", "icloud.com", "mail.com", "protonmail.com");
 
-    private static final Set<String> ORG_STOP_WORDS = Set.of(
-            "co", "khong", "ca nhan", "none", "null", "chua co", "tu do", "freelance", "nan", "-");
-
     private boolean isCorporateDomain(String domain) {
         if (domain == null || domain.isBlank())
             return false;
         return !PUBLIC_EMAIL_DOMAINS.contains(domain.toLowerCase().trim());
-    }
-
-    private boolean isValidOrgName(String normalizedName) {
-        if (normalizedName == null || normalizedName.length() < 2)
-            return false;
-        return !ORG_STOP_WORDS.contains(normalizedName);
     }
 
     private OrganizationEntity resolveOrCreateOrganization(String orgName, String emailDomain,
@@ -217,11 +213,14 @@ public class ExtractionResultProcessor {
             return null; // Không tạo tổ chức rỗng
         }
 
-        String cleanName = orgName.trim();
-        String normalizedName = normalizeString(cleanName);
+        if (organizationSanitizer.isExcluded(orgName)) {
+            return null;
+        }
 
-        // Chặn stopwords (Có, Không, Cá nhân,...)
-        if (!isValidOrgName(normalizedName)) {
+        String cleanName = orgName.trim();
+        String normalizedName = organizationSanitizer.sanitizeAndGetNormalizedName(orgName);
+
+        if (normalizedName == null || normalizedName.isEmpty()) {
             return null;
         }
 
@@ -279,16 +278,16 @@ public class ExtractionResultProcessor {
 
     private AttendeeProfileEntity resolveOrCreateAttendee(
             IngestionModels.ExtractedEntity pEnt,
+            String email,
+            String phone,
             OrganizationEntity linkedOrg,
             Map<String, Object> profileAttributes) {
-        String email = pEnt.email();
         Optional<AttendeeProfileEntity> matched = Optional.empty();
 
-        if (email != null && !email.trim().isEmpty()) {
-            matched = attendeeProfileRepository.findByEmailIgnoreCaseAndIsActiveTrue(email.trim());
+        if (email != null && !email.isEmpty()) {
+            matched = attendeeProfileRepository.findByEmailIgnoreCaseAndIsActiveTrue(email);
         } else {
             String normalizedName = normalizeString(pEnt.fullName());
-            String phone = (pEnt.phone() != null) ? pEnt.phone().trim() : null;
             if (phone != null && !phone.isEmpty()) {
                 matched = attendeeProfileRepository.findByNormalizedNameAndPhoneAndIsActiveTrue(normalizedName, phone);
             }
@@ -352,8 +351,8 @@ public class ExtractionResultProcessor {
         AttendeeProfileEntity newPerson = AttendeeProfileEntity.builder()
                 .fullName(pEnt.fullName().trim())
                 .normalizedName(normalizeString(pEnt.fullName()))
-                .email(email != null ? email.trim() : null)
-                .phone(pEnt.phone() != null ? pEnt.phone().trim() : null)
+                .email(email)
+                .phone(phone)
                 .academicTitleRaw(pEnt.academicTitleRaw())
                 .academicTitleNormalized(normalizedTitles)
                 .attendeeRole(finalRole)
@@ -421,5 +420,31 @@ public class ExtractionResultProcessor {
                 .replace("đ", "d")
                 .replace("Đ", "d");
         return removed.replaceAll("[^a-zA-Z0-9\\s]", "").trim().replaceAll("\\s+", " ");
+    }
+
+    public static String normalizePhone(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String cleaned = raw.trim()
+                .replace('O', '0')
+                .replace('o', '0');
+        String digits = cleaned.replaceAll("[^0-9a-zA-Z+]", "");
+        if (digits.startsWith("+84")) {
+            digits = "0" + digits.substring(3);
+        } else if (digits.startsWith("84") && digits.length() == 11) {
+            digits = "0" + digits.substring(2);
+        }
+        return digits;
+    }
+
+    public static String normalizeEmail(String raw) {
+        if (raw == null || raw.isBlank()) {
+            return null;
+        }
+        String cleaned = raw.trim().toLowerCase();
+        cleaned = cleaned.replaceAll("\\s*@\\s*", "@");
+        cleaned = cleaned.replaceAll("\\s*\\.\\s*", ".");
+        return cleaned;
     }
 }
