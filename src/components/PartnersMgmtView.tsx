@@ -65,7 +65,7 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
   const [attendeesPage, setAttendeesPage] = useState(0);
   const [attendeesTotalPages, setAttendeesTotalPages] = useState(0);
   const [attendeesTotalElements, setAttendeesTotalElements] = useState(0);
-  const [attendeesSize] = useState(9);
+  const [attendeesSize] = useState(20);
 
   // Organization Filters State
   const [organizations, setOrganizations] = useState<OrganizationProfile[]>([]);
@@ -76,7 +76,7 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
   const [orgsPage, setOrgsPage] = useState(0);
   const [orgsTotalPages, setOrgsTotalPages] = useState(0);
   const [orgsTotalElements, setOrgsTotalElements] = useState(0);
-  const [orgsSize] = useState(9);
+  const [orgsSize] = useState(20);
 
   // Profile Detail Modal State
   const [selectedAttendee, setSelectedAttendee] = useState<AttendeeProfile | null>(null);
@@ -528,91 +528,86 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
             </div>
           </div>
 
-          {/* Individual Cards Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredAttendees.map((att) => (
-              <div
-                key={att.id}
-                onClick={() => handleSelectAttendee(att)}
-                className="bg-white border border-[#DCE1E6] rounded-xl p-5 shadow-2xs hover:shadow-md hover:border-[#1b4b66] transition-all cursor-pointer flex flex-col justify-between space-y-4 group relative"
-              >
-                <div className="space-y-3">
-                  {/* Top Bar: Role & Status */}
-                  <div className="flex items-center justify-between gap-2">
-                    {renderRoleBadge(att.attendeeRole)}
-                    {renderStatusBadge(att.followUpStatus)}
-                  </div>
-
-                  {/* Profile Name & Title */}
-                  <div className="space-y-1">
-                    <div className="flex items-baseline gap-2 flex-wrap">
-                      <h3 className="text-base font-extrabold text-[#0f1d28] group-hover:text-[#00344c] transition-colors">
-                        {att.fullName}
-                      </h3>
-                    </div>
-
-                    <p className="text-xs font-semibold text-[#1b4b66] truncate">{att.position}</p>
-
-                    <p className="text-xs text-[#72787e] flex items-center gap-1.5 truncate">
-                      <Building2 className="w-3.5 h-3.5 text-[#72787e] shrink-0" />
-                      <span className="truncate">{att.organizationName}</span>
-                    </p>
-                  </div>
-
-                  {/* Academic Title Tags */}
-                  <div className="flex items-center gap-1.5 flex-wrap">
-                    <span className="text-[10px] font-mono font-semibold text-[#72787e]">Học hàm:</span>
-                    {att.academicTitleNormalized.map((tag) => (
-                      <span
-                        key={tag}
-                        className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-[#EEF1F4] text-[#00344c] border border-[#DCE1E6]"
-                      >
-                        {tag}
-                      </span>
-                    ))}
-                    <span className="text-[10px] text-gray-400 font-mono">({att.academicTitleRaw})</span>
-                  </div>
-
-                  {/* Source Sheets Contribution Summary */}
-                  <div className="bg-[#F8FAFC] border border-[#DCE1E6] rounded-lg p-2.5 space-y-1.5">
-                    <div className="flex items-center justify-between text-[11px] font-semibold text-[#00344c]">
-                      <span className="flex items-center gap-1">
-                        <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                        <span>Nguồn Sheet tổng hợp</span>
-                      </span>
-                      <span className="font-mono text-[10px] bg-emerald-50 text-emerald-800 px-1.5 py-0.2 rounded border border-emerald-200">
-                        {att.sourceSheets.length} file
-                      </span>
-                    </div>
-
-                    <div className="space-y-1">
-                      {att.sourceSheets.slice(0, 2).map((s, idx) => (
-                        <div key={idx} className="text-[11px] text-[#41474d] truncate flex items-center gap-1">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 shrink-0" />
-                          <span className="font-semibold truncate">{s.eventName}</span>
+          {/* Individual List Table */}
+          <div className="bg-white border border-[#DCE1E6] rounded-xl shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-[#edf4ff]/60 border-b border-[#DCE1E6] text-[#00344c] font-display font-bold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-4">{language === 'VN' ? 'Thành viên / Học hàm' : 'Member / Academic Title'}</th>
+                    <th className="py-3 px-4">{language === 'VN' ? 'Chức vụ / Đơn vị' : 'Position / Organization'}</th>
+                    <th className="py-3 px-4">{language === 'VN' ? 'Thông tin Liên hệ' : 'Contact Info'}</th>
+                    <th className="py-3 px-4 text-right">{language === 'VN' ? 'Thao tác' : 'Action'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#DCE1E6]">
+                  {filteredAttendees.map((att) => (
+                    <tr
+                      key={att.id}
+                      onClick={() => handleSelectAttendee(att)}
+                      className="hover:bg-[#F8FAFC] transition-colors cursor-pointer group"
+                    >
+                      <td className="py-3 px-4">
+                        <div className="space-y-1">
+                          <p className="font-extrabold text-[#0f1d28] group-hover:text-[#00344c] text-sm transition-colors">{att.fullName}</p>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            {att.academicTitleNormalized.map((tag) => (
+                              <span
+                                key={tag}
+                                className="px-1.5 py-0.2 rounded text-[10px] font-mono font-bold bg-[#EEF1F4] text-[#00344c] border border-[#DCE1E6]"
+                              >
+                                {tag}
+                              </span>
+                            ))}
+                            {att.academicTitleRaw && (
+                              <span className="text-[10px] text-gray-400 font-mono">({att.academicTitleRaw})</span>
+                            )}
+                          </div>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                </div>
+                      </td>
 
-                {/* Bottom Footer: Notes count & View detail button */}
-                <div className="pt-3 border-t border-[#DCE1E6]/70 flex items-center justify-between text-xs text-[#72787e]">
-                  <span className="flex items-center gap-1 text-[11px] font-mono">
-                    <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
-                    {att.notes.length} {language === 'VN' ? 'ghi chú' : 'notes'}
-                  </span>
+                      <td className="py-3 px-4">
+                        <div className="space-y-0.5">
+                          <p className="font-semibold text-[#1b4b66] text-xs">{att.position || '-'}</p>
+                          <p className="text-[11px] text-[#72787e] flex items-center gap-1 font-semibold">
+                            <Building2 className="w-3.5 h-3.5 text-[#72787e] shrink-0" />
+                            <span className="truncate">{att.organizationName || '-'}</span>
+                          </p>
+                        </div>
+                      </td>
 
-                  <span className="text-xs font-bold text-[#00344c] group-hover:underline flex items-center gap-0.5">
-                    {language === 'VN' ? 'Xem Profile' : 'View Profile'}
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </span>
-                </div>
-              </div>
-            ))}
+                      <td className="py-3 px-4">
+                        <div className="space-y-0.5 font-mono text-[#00344c] text-xs">
+                          {att.email && (
+                            <p className="flex items-center gap-1">
+                              <Mail className="w-3.5 h-3.5 text-[#72787e] shrink-0" />
+                              <span>{att.email}</span>
+                            </p>
+                          )}
+                          {att.phone && (
+                            <p className="flex items-center gap-1">
+                              <Phone className="w-3.5 h-3.5 text-[#72787e] shrink-0" />
+                              <span>{att.phone}</span>
+                            </p>
+                          )}
+                          {!att.email && !att.phone && <span className="text-gray-400">-</span>}
+                        </div>
+                      </td>
+
+                      <td className="py-3 px-4 text-right">
+                        <span className="text-xs font-bold text-[#00344c] group-hover:underline inline-flex items-center gap-0.5">
+                          {language === 'VN' ? 'Xem Profile' : 'View Profile'}
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
             {filteredAttendees.length === 0 && (
-              <div className="col-span-full bg-white border border-[#DCE1E6] rounded-xl p-12 text-center text-[#72787e] space-y-2">
+              <div className="bg-white p-12 text-center text-[#72787e] space-y-2">
                 <Users className="w-10 h-10 text-gray-300 mx-auto" />
                 <p className="text-sm font-semibold">
                   {language === 'VN' ? 'Không tìm thấy cá nhân nào phù hợp bộ lọc.' : 'No individuals match your filter criteria.'}
@@ -677,75 +672,91 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
             </div>
           </div>
 
-          {/* Organizations Grid */}
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredOrgs.map((org) => (
-              <div
-                key={org.id}
-                onClick={() => handleSelectOrg(org)}
-                className="bg-white border border-[#DCE1E6] rounded-xl p-5 shadow-2xs hover:shadow-md hover:border-[#1b4b66] transition-all cursor-pointer flex flex-col justify-between space-y-4 group"
-              >
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="px-2.5 py-1 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
-                      {renderOrgCategoryLabel(org.category)}
-                    </span>
-                    <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-[#EEF1F4] text-[#00344c] border border-[#DCE1E6]">
-                      @{org.emailDomain}
-                    </span>
-                  </div>
+          {/* Organizations List Table */}
+          <div className="bg-white border border-[#DCE1E6] rounded-xl shadow-2xs overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-left text-xs">
+                <thead>
+                  <tr className="bg-[#edf4ff]/60 border-b border-[#DCE1E6] text-[#00344c] font-display font-bold uppercase tracking-wider text-[11px]">
+                    <th className="py-3 px-4">{language === 'VN' ? 'Tên Tổ chức' : 'Organization Name'}</th>
+                    <th className="py-3 px-4">{language === 'VN' ? 'Phân loại / Domain' : 'Category / Domain'}</th>
+                    <th className="py-3 px-4 text-center">{language === 'VN' ? 'Thống kê (Nhân sự / Sự kiện)' : 'Stats (Members / Events)'}</th>
+                    <th className="py-3 px-4 text-center">{language === 'VN' ? 'Ghi chú' : 'Notes'}</th>
+                    <th className="py-3 px-4 text-right">{language === 'VN' ? 'Thao tác' : 'Action'}</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-[#DCE1E6]">
+                  {filteredOrgs.map((org) => (
+                    <tr
+                      key={org.id}
+                      onClick={() => handleSelectOrg(org)}
+                      className="hover:bg-[#F8FAFC] transition-colors cursor-pointer group"
+                    >
+                      <td className="py-3 px-4">
+                        <div className="space-y-0.5">
+                          <p className="font-extrabold text-[#0f1d28] group-hover:text-[#00344c] text-sm transition-colors">{org.orgName}</p>
+                          {org.website && (
+                            <p className="text-[11px] text-[#72787e] flex items-center gap-1 font-mono">
+                              <Globe className="w-3.5 h-3.5 text-[#72787e]" />
+                              <span>{org.website}</span>
+                            </p>
+                          )}
+                          {org.address && <p className="text-[10px] text-gray-400 truncate max-w-sm">{org.address}</p>}
+                        </div>
+                      </td>
 
-                  <div className="space-y-1">
-                    <h3 className="text-base font-extrabold text-[#0f1d28] group-hover:text-[#00344c] transition-colors">
-                      {org.orgName}
-                    </h3>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-blue-50 text-blue-800 border border-blue-200">
+                            {renderOrgCategoryLabel(org.category)}
+                          </span>
+                          {org.emailDomain && (
+                            <span className="px-2 py-0.5 rounded font-mono text-[10px] font-bold bg-[#EEF1F4] text-[#00344c] border border-[#DCE1E6]">
+                              @{org.emailDomain}
+                            </span>
+                          )}
+                        </div>
+                      </td>
 
-                    <p className="text-xs text-[#72787e] line-clamp-1">{org.address}</p>
-                  </div>
+                      <td className="py-3 px-4">
+                        <div className="flex items-center justify-center gap-4 text-xs font-mono text-center">
+                          <div>
+                            <span className="text-[10px] text-[#72787e] block">{language === 'VN' ? 'Nhân sự' : 'Members'}</span>
+                            <span className="font-black text-[#00344c]">{org.memberCount}</span>
+                          </div>
+                          <div className="border-l border-[#DCE1E6] h-6"></div>
+                          <div>
+                            <span className="text-[10px] text-[#72787e] block">{language === 'VN' ? 'Sự kiện' : 'Events'}</span>
+                            <span className="font-black text-emerald-700">{org.eventsCount}</span>
+                          </div>
+                        </div>
+                      </td>
 
-                  {/* Summary Stats */}
-                  <div className="grid grid-cols-2 gap-2 pt-1">
-                    <div className="bg-[#F8FAFC] border border-[#DCE1E6] rounded-lg p-2 text-center">
-                      <p className="text-[10px] text-[#72787e] font-semibold">{language === 'VN' ? 'Nhân sự / Diễn giả' : 'Members'}</p>
-                      <p className="text-sm font-black text-[#00344c] font-mono">{org.memberCount}</p>
-                    </div>
+                      <td className="py-3 px-4 text-center">
+                        {org.notes && org.notes.length > 0 ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 font-mono text-[11px] font-bold border border-blue-200">
+                            <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
+                            <span>{org.notes.length}</span>
+                          </span>
+                        ) : (
+                          <span className="text-gray-300">-</span>
+                        )}
+                      </td>
 
-                    <div className="bg-[#F8FAFC] border border-[#DCE1E6] rounded-lg p-2 text-center">
-                      <p className="text-[10px] text-[#72787e] font-semibold">{language === 'VN' ? 'Sự kiện tham gia' : 'Events'}</p>
-                      <p className="text-sm font-black text-emerald-700 font-mono">{org.eventsCount}</p>
-                    </div>
-                  </div>
-
-                  {/* Source Sheets Contribution */}
-                  <div className="space-y-1 text-xs">
-                    <span className="text-[11px] font-bold text-[#72787e] flex items-center gap-1">
-                      <FileSpreadsheet className="w-3.5 h-3.5 text-emerald-600" />
-                      {language === 'VN' ? 'Vai trò đóng góp trong Sheet:' : 'Roles in Sheets:'}
-                    </span>
-                    {org.sourceSheets.map((s, idx) => (
-                      <div key={idx} className="text-[11px] text-[#41474d] truncate bg-[#EEF1F4]/60 p-1.5 rounded border border-[#DCE1E6]/50">
-                        <span className="font-bold text-[#00344c]">{s.contributionRole}</span> - {s.eventName}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-
-                <div className="pt-3 border-t border-[#DCE1E6]/70 flex items-center justify-between text-xs text-[#72787e]">
-                  <span className="flex items-center gap-1 text-[11px] font-mono">
-                    <MessageSquare className="w-3.5 h-3.5 text-blue-600" />
-                    {org.notes.length} {language === 'VN' ? 'ghi chú' : 'notes'}
-                  </span>
-
-                  <span className="text-xs font-bold text-[#00344c] group-hover:underline flex items-center gap-0.5">
-                    {language === 'VN' ? 'Xem Profile Tổ chức' : 'View Org Profile'}
-                    <ChevronRight className="w-3.5 h-3.5" />
-                  </span>
-                </div>
-              </div>
-            ))}
+                      <td className="py-3 px-4 text-right">
+                        <span className="text-xs font-bold text-[#00344c] group-hover:underline inline-flex items-center gap-0.5">
+                          {language === 'VN' ? 'Xem Profile' : 'View Org Detail'}
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </span>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
 
             {filteredOrgs.length === 0 && (
-              <div className="col-span-full bg-white border border-[#DCE1E6] rounded-xl p-12 text-center text-[#72787e] space-y-2">
+              <div className="bg-white p-12 text-center text-[#72787e] space-y-2">
                 <Building2 className="w-10 h-10 text-gray-300 mx-auto" />
                 <p className="text-sm font-semibold">
                   {language === 'VN' ? 'Không tìm thấy tổ chức nào phù hợp.' : 'No organizations found matching filter.'}
@@ -877,7 +888,7 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
                       </div>
 
                       <div className="text-[11px] text-[#41474d] bg-[#F8FAFC] p-2 rounded border border-[#DCE1E6]">
-                        <span className="font-bold text-[#1b4b66]">{language === 'VN' ? 'Vai trò trong sự kiện:' : 'Event Role:'}</span> {s.roleInEvent}
+                        <span className="font-bold text-[#1b4b66]">{language === 'VN' ? 'Chức vụ - Nơi công tác:' : 'Position - Workplace:'}</span> {s.roleInEvent}
                       </div>
 
                       {s.snapshotData && Object.keys(s.snapshotData).length > 0 && (

@@ -38,20 +38,20 @@ public interface AttendeeProfileRepository extends JpaRepository<AttendeeProfile
 
         @Query(value = "SELECT a.id AS idA, a.full_name AS nameA, b.id AS idB, b.full_name AS nameB, " +
                         "COALESCE( " +
-                        "    CASE WHEN a.email = b.email OR a.phone = b.phone THEN 1.0 END, " +
+                        "    CASE WHEN a.email = b.email THEN 1.0 END, " +
                         "    similarity(a.normalized_name, b.normalized_name) " +
                         ") AS score, " +
                         "CASE " +
-                        "    WHEN a.email = b.email THEN 'EXACT_EMAIL' " +
-                        "    WHEN a.phone = b.phone THEN 'EXACT_PHONE' " +
-                        "    ELSE 'FUZZY_NAME' " +
+                        "    WHEN a.email = b.email THEN 'EXACT' " +
+                        "    ELSE 'SUGGESTED' " +
                         "END AS matchReason " +
                         "FROM attendee_profiles a " +
                         "JOIN attendee_profiles b ON a.id < b.id " +
                         "WHERE a.is_active = true AND b.is_active = true " +
                         "  AND ( " +
                         "      (a.email = b.email AND a.email IS NOT NULL AND a.email <> '') " +
-                        "      OR (a.phone = b.phone AND a.phone IS NOT NULL AND a.phone <> '') " +
+                        "      OR (a.phone = b.phone AND a.phone IS NOT NULL AND a.phone <> '' AND similarity(a.normalized_name, b.normalized_name) > :threshold) "
+                        +
                         "      OR similarity(a.normalized_name, b.normalized_name) > :threshold " +
                         "  ) " +
                         "ORDER BY score DESC", nativeQuery = true)

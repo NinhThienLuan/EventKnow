@@ -191,6 +191,9 @@ public class ExtractionResultProcessor {
                 snapshotData.put("extracted_email", pEnt.email());
                 snapshotData.put("extracted_phone", pEnt.phone());
                 snapshotData.put("extracted_academic_title_raw", pEnt.academicTitleRaw());
+                snapshotData.put("title_at_event", pEnt.position() != null ? pEnt.position().trim() : "");
+                snapshotData.put("company_at_event",
+                        pEnt.organizationTextRaw() != null ? pEnt.organizationTextRaw().trim() : "");
 
                 createAttendanceRecord(rawEvent, personEntity, linkedOrg, rowNum, snapshotData);
             }

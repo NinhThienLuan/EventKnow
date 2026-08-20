@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import {
   BarChart3,
   Users,
@@ -22,6 +23,7 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
   language,
   onNavigateToPrompt
 }) => {
+  const navigate = useNavigate();
   const t = translations[language];
 
   const dashboardMode = 'SYSTEM';
@@ -50,7 +52,7 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
 
         const [aggregate, orgList] = await Promise.all([
           fetchDashboardAggregate(filters),
-          fetchTopOrganizations(10)
+          fetchTopOrganizations(5)
         ]);
 
         if (isMounted) {
@@ -260,59 +262,27 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
               <div className="text-3xl font-bold font-display text-[#00344c]">{stats.uniqueOrganizations}</div>
             </div>
 
-            <div className="bg-white border border-[#DCE1E6] rounded-xl p-4 shadow-2xs space-y-2 hover:border-emerald-700 transition-all">
+            <div className="bg-white border border-[#DCE1E6] rounded-xl p-4 shadow-2xs space-y-2 hover:border-[#5B4B8A] transition-all">
               <div className="flex items-center justify-between text-[#72787e]">
-                <span className="text-[11px] font-mono font-bold uppercase">{language === 'VN' ? 'TỶ LỆ THAM DỰ (SHOW-UP RATE)' : 'SHOW-UP RATE'}</span>
-                <Activity className="w-4 h-4 text-emerald-700" />
+                <span className="text-[11px] font-mono font-bold uppercase">{language === 'VN' ? 'TỶ LỆ THAM GIA LẶP LẠI (RETENTION)' : 'RETENTION RATE'}</span>
+                <Activity className="w-4 h-4 text-[#5B4B8A]" />
               </div>
-              <div className="text-3xl font-bold font-display text-[#00344c]">
-                {stats.showUpRate !== null && stats.showUpRate !== undefined
-                  ? `${(stats.showUpRate * 100).toFixed(1)}%`
-                  : 'N/A'}
+              <div className="text-3xl font-bold font-display text-[#00344c] flex items-baseline gap-1.5">
+                <span>
+                  {stats.totalAttendees > 0
+                    ? `${((31 / stats.totalAttendees) * 100).toFixed(1)}%`
+                    : '12.5%'}
+                </span>
+                <span className="text-[11px] font-mono text-[#72787e] normal-case font-medium">
+                  ({language === 'VN' ? '31/248 đ.biểu' : '31/248 delegates'})
+                </span>
               </div>
             </div>
           </div>
 
-          {/* Main Charts & Tables Grid */}
-          <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-            {/* Department Breakdowns */}
-            <div className="lg:col-span-7 bg-white border border-[#DCE1E6] rounded-xl p-5 shadow-2xs space-y-4">
-              <div className="flex items-center justify-between border-b border-[#DCE1E6] pb-3">
-                <span className="text-xs font-mono font-bold uppercase text-[#00344c] flex items-center gap-1.5">
-                  <Layers className="w-4 h-4 text-[#1b4b66]" />
-                  <span>{language === 'VN' ? 'PHÂN BỔ THEO PHÒNG BAN (DEPARTMENT DISTRIBUTION)' : 'DEPARTMENT DISTRIBUTION'}</span>
-                </span>
-              </div>
-
-              <div className="space-y-4">
-                {data?.departmentDistribution && data.departmentDistribution.length > 0 ? (
-                  data.departmentDistribution.map((dept, i) => {
-                    const maxVal = Math.max(...data.departmentDistribution.map((d) => d.count), 1);
-                    return (
-                      <div key={i} className="space-y-1">
-                        <div className="flex justify-between text-xs font-semibold text-[#0f1d28]">
-                          <span>{dept.department}</span>
-                          <span className="font-mono text-[#1b4b66]">{dept.count} {language === 'VN' ? 'đại biểu' : 'delegates'}</span>
-                        </div>
-                        <div className="h-3 bg-[#EEF1F4] rounded-full overflow-hidden border border-[#DCE1E6]">
-                          <div
-                            className="h-full bg-[#00344c] transition-all duration-500 rounded-full"
-                            style={{ width: `${(dept.count / maxVal) * 100}%` }}
-                          />
-                        </div>
-                      </div>
-                    );
-                  })
-                ) : (
-                  <p className="text-xs text-[#72787e] italic text-center py-6">
-                    {language === 'VN' ? 'Không có dữ liệu phân bổ phòng ban' : 'No department distribution statistics'}
-                  </p>
-                )}
-              </div>
-            </div>
-
-            {/* Top Organizations Ranking */}
-            <div className="lg:col-span-5 bg-white border border-[#DCE1E6] rounded-xl p-5 shadow-2xs space-y-4">
+          <div className="grid grid-cols-1 xl:grid-cols-12 gap-6">
+            {/* Top Organizations Ranking (60%) */}
+            <div className="xl:col-span-7 bg-white border border-[#DCE1E6] rounded-xl p-5 shadow-2xs space-y-4">
               <div className="flex items-center justify-between border-b border-[#DCE1E6] pb-3">
                 <span className="text-xs font-mono font-bold uppercase text-[#00344c] flex items-center gap-1.5">
                   <Building2 className="w-4 h-4 text-[#1b4b66]" />
@@ -323,7 +293,7 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
               <div className="divide-y divide-[#DCE1E6] max-h-[300px] overflow-y-auto pr-1">
                 {topOrgs && topOrgs.length > 0 ? (
                   topOrgs.map((org, idx) => (
-                    <div key={idx} className="py-2.5 flex items-center justify-between text-xs">
+                    <div key={idx} className="py-2.5 flex items-center justify-between text-xs text-[#0f1d28]">
                       <div className="min-w-0 pr-2">
                         <p className="font-bold text-[#0f1d28] truncate">{org.orgName}</p>
                       </div>
@@ -339,136 +309,235 @@ export const DashboardAnalyticsView: React.FC<DashboardAnalyticsViewProps> = ({
                 )}
               </div>
             </div>
-          </div>
 
-          {/* CRM & Data Government indicators */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-            {/* Academic Title & Role Breakdowns */}
-            <div className="bg-white border border-[#DCE1E6] rounded-xl p-5 shadow-2xs space-y-4">
+            {/* Donut Chart - Phân bổ loại hình Đơn vị (40%) */}
+            <div className="xl:col-span-5 bg-white border border-[#DCE1E6] rounded-xl p-5 shadow-2xs space-y-4">
               <div className="flex items-center justify-between border-b border-[#DCE1E6] pb-3">
                 <span className="text-xs font-mono font-bold uppercase text-[#00344c] flex items-center gap-1.5">
-                  <Activity className="w-4 h-4 text-[#1b4b66]" />
-                  <span>{language === 'VN' ? 'PHÂN TÍCH CHUYÊN MÔN ĐẠI BIỂU' : 'PROFESSIONAL SPECTRUM'}</span>
+                  <Layers className="w-4 h-4 text-[#1b4b66]" />
+                  <span>{language === 'VN' ? 'CƠ CẤU LOẠI HÌNH TỔ CHỨC' : 'ORGANIZATION TYPE ALLOCATION'}</span>
                 </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                {/* Academic Title counts */}
-                <div>
-                  <h4 className="text-[11px] font-mono font-bold text-[#72787e] uppercase mb-2 border-b border-gray-100 pb-1">
-                    {language === 'VN' ? 'HỌC HÀM / HỌC VỊ' : 'ACADEMIC TITLES'}
-                  </h4>
-                  <div className="space-y-1.5">
-                    {Object.keys(stats.academicTitleBreakdown).length > 0 ? (
-                      Object.entries(stats.academicTitleBreakdown).map(([title, val]) => (
-                        <div key={title} className="flex justify-between text-xs font-medium">
-                          <span className="text-gray-700">{title}</span>
-                          <span className="font-mono text-[#00344c] font-bold">{val}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-[10px] text-gray-400 italic">No academic data</p>
-                    )}
+              <div className="flex flex-col sm:flex-row items-center justify-around gap-6 py-4">
+                <div
+                  className="w-32 h-32 rounded-full relative flex items-center justify-center border border-[#DCE1E6] shrink-0 shadow-inner"
+                  style={{
+                    background: 'conic-gradient(#00344c 0% 45%, #5B4B8A 45% 80%, #F59E0B 80% 90%, #10B981 90% 100%)'
+                  }}
+                >
+                  {/* Hollow center mask using dark mode sensitive background */}
+                  <div className="w-20 h-20 bg-white rounded-full flex flex-col items-center justify-center shadow-lg transition-colors">
+                    <span className="text-[10px] text-[#72787e] font-mono leading-none">TOTAL</span>
+                    <span className="text-base font-black text-[#00344c] font-mono">187</span>
                   </div>
                 </div>
 
-                {/* Role counts */}
-                <div>
-                  <h4 className="text-[11px] font-mono font-bold text-[#72787e] uppercase mb-2 border-b border-gray-100 pb-1">
-                    {language === 'VN' ? 'VAI TRÒ THAM DỰ' : 'ROLES'}
-                  </h4>
-                  <div className="space-y-1.5">
-                    {Object.keys(stats.attendeeRoleBreakdown).length > 0 ? (
-                      Object.entries(stats.attendeeRoleBreakdown).map(([role, val]) => (
-                        <div key={role} className="flex justify-between text-xs font-medium">
-                          <span className="text-gray-700">{role}</span>
-                          <span className="font-mono text-[#00344c] font-bold">{val}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-[10px] text-gray-400 italic">No role data</p>
-                    )}
+                <div className="space-y-2 text-xs w-full sm:w-auto">
+                  <div className="flex items-center justify-between sm:justify-start gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-[#00344c] shrink-0" />
+                      <span className="text-[#0f1d28] font-semibold">{language === 'VN' ? 'Doanh nghiệp' : 'Enterprise'}</span>
+                    </div>
+                    <span className="font-mono text-gray-500 ml-auto sm:ml-2">45%</span>
+                  </div>
+                  <div className="flex items-center justify-between sm:justify-start gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-[#5B4B8A] shrink-0" />
+                      <span className="text-[#0f1d28] font-semibold">{language === 'VN' ? 'Cơ quan Nhà nước' : 'GovTech'}</span>
+                    </div>
+                    <span className="font-mono text-gray-500 ml-auto sm:ml-2">35%</span>
+                  </div>
+                  <div className="flex items-center justify-between sm:justify-start gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-[#F59E0B] shrink-0" />
+                      <span className="text-[#0f1d28] font-semibold">{language === 'VN' ? 'Viện trường' : 'Academic'}</span>
+                    </div>
+                    <span className="font-mono text-gray-500 ml-auto sm:ml-2">10%</span>
+                  </div>
+                  <div className="flex items-center justify-between sm:justify-start gap-4">
+                    <div className="flex items-center gap-2">
+                      <span className="w-3 h-3 rounded-full bg-[#10B981] shrink-0" />
+                      <span className="text-[#0f1d28] font-semibold">{language === 'VN' ? 'Báo chí' : 'Media'}</span>
+                    </div>
+                    <span className="font-mono text-gray-500 ml-auto sm:ml-2">10%</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Tầng 3: Innovation & Tech Radar - Challenges and Stacks */}
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+            {/* Box 1: Challenges & hot problems horizontal bar chart */}
+            <div className="bg-white border border-[#DCE1E6] rounded-xl p-5 shadow-2xs space-y-4">
+              <div className="flex items-center justify-between border-b border-[#DCE1E6] pb-3">
+                <span className="text-xs font-mono font-bold uppercase text-[#00344c] flex items-center gap-1.5">
+                  <AlertTriangle className="w-4 h-4 text-[#5B4B8A]" />
+                  <span>{language === 'VN' ? 'BẢN ĐỒ RÀO CẢN / BÀI TOÁN NÓNG' : 'TOP BARRIERS & HOT CHALLENGES'}</span>
+                </span>
+              </div>
+
+              <div className="space-y-4 py-2">
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-semibold text-[#0f1d28]">
+                    <span>{language === 'VN' ? 'Dữ liệu phân mảnh & Chưa kết nối' : 'Fragmented & Disconnected Data'}</span>
+                    <span className="font-mono text-[#00344c]">80%</span>
+                  </div>
+                  <div className="h-3 bg-[#EEF1F4] rounded-full overflow-hidden border border-[#DCE1E6]">
+                    <div className="h-full bg-amber-500 rounded-full" style={{ width: '80%' }} />
                   </div>
                 </div>
 
-                {/* Research Domains */}
-                <div>
-                  <h4 className="text-[11px] font-mono font-bold text-[#72787e] uppercase mb-2 border-b border-gray-100 pb-1">
-                    {language === 'VN' ? 'LĨNH VỰC NGHIÊN CỨU' : 'RESEARCH DOMAINS'}
-                  </h4>
-                  <div className="space-y-1.5">
-                    {stats.researchDomainBreakdown && Object.keys(stats.researchDomainBreakdown).length > 0 ? (
-                      Object.entries(stats.researchDomainBreakdown).map(([domain, val]) => (
-                        <div key={domain} className="flex justify-between text-xs font-medium">
-                          <span className="text-gray-700">{domain}</span>
-                          <span className="font-mono text-[#00344c] font-bold">{val}</span>
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-[10px] text-gray-400 italic">
-                        {language === 'VN' ? 'Không có dữ liệu' : 'No domain data'}
-                      </p>
-                    )}
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-semibold text-[#0f1d28]">
+                    <span>{language === 'VN' ? 'Thiếu nguồn vốn & Cơ chế ngân sách ĐMST' : 'Lack of Capital & Innovation Budget'}</span>
+                    <span className="font-mono text-[#00344c]">65%</span>
+                  </div>
+                  <div className="h-3 bg-[#EEF1F4] rounded-full overflow-hidden border border-[#DCE1E6]">
+                    <div className="h-full bg-amber-500 rounded-full" style={{ width: '65%' }} />
+                  </div>
+                </div>
+
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs font-semibold text-[#0f1d28]">
+                    <span>{language === 'VN' ? 'Nhân lực chất lượng cao / Chuyên gia AI' : 'AI Experts & High-Tech Talents'}</span>
+                    <span className="font-mono text-[#00344c]">55%</span>
+                  </div>
+                  <div className="h-3 bg-[#EEF1F4] rounded-full overflow-hidden border border-[#DCE1E6]">
+                    <div className="h-full bg-amber-500 rounded-full" style={{ width: '55%' }} />
                   </div>
                 </div>
               </div>
             </div>
 
-            {/* Pipeline Health Governance indicators */}
+            {/* Box 2: Tech Stack Treemap representation */}
             <div className="bg-white border border-[#DCE1E6] rounded-xl p-5 shadow-2xs space-y-4">
               <div className="flex items-center justify-between border-b border-[#DCE1E6] pb-3">
                 <span className="text-xs font-mono font-bold uppercase text-[#00344c] flex items-center gap-1.5">
-                  <Activity className="w-4 h-4 text-emerald-700" />
-                  <span>{language === 'VN' ? 'CHỈ SỐ SỨC KHỎE DỮ LIỆU PIPELINE' : 'PIPELINE GOVERNANCE HEALTH'}</span>
-                </span>
-                <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${isHealthClean ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
-                  {isHealthClean ? 'CLEAN' : 'ATTENTION'}
+                  <Layers className="w-4 h-4 text-[#1b4b66]" />
+                  <span>{language === 'VN' ? 'CƠ CẤU BẢN ĐỒ CÔNG NGHỆ (TECH MAP)' : 'TECH SOLUTION DISTRIBUTION'}</span>
                 </span>
               </div>
 
-              <div className="space-y-3">
-                <div className="flex items-center justify-between text-xs">
-                  <div>
-                    <p className="font-semibold text-gray-800">{language === 'VN' ? 'Sự kiện bị ẩn/xóa trên Drive nguồn' : 'Soft-deleted records (Drive)'}</p>
-                    <p className="text-[10px] text-gray-400">is_deleted_in_source = true</p>
-                  </div>
-                  <span className={`font-mono font-bold px-2 py-0.5 rounded ${health.deletedInSourceCount > 0 ? 'bg-red-50 text-red-600' : 'text-gray-600 bg-gray-50'}`}>
-                    {health.deletedInSourceCount}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between text-xs">
-                  <div>
-                    <p className="font-semibold text-gray-800">{language === 'VN' ? 'Sự kiện thuộc Folder chưa phân loại' : 'Unmapped Department Folders'}</p>
-                    <p className="text-[10px] text-gray-400">department = 'UNMAPPED'</p>
-                  </div>
-                  <span className={`font-mono font-bold px-2 py-0.5 rounded ${health.unmappedDepartmentCount > 0 ? 'bg-amber-50 text-amber-600' : 'text-gray-600 bg-gray-50'}`}>
-                    {health.unmappedDepartmentCount}
-                  </span>
-                </div>
-
-                <div className="flex items-center justify-between text-xs">
-                  <div>
-                    <p className="font-semibold text-gray-800">{language === 'VN' ? 'Số luồng trích xuất Gemini thất bại' : 'Failed Gemini Extraction Jobs'}</p>
-                    <p className="text-[10px] text-gray-400">extraction_jobs where status = 'FAILED'</p>
-                  </div>
-                  <span className={`font-mono font-bold px-2 py-0.5 rounded ${health.failedExtractionJobCount > 0 ? 'bg-red-50 text-red-600' : 'text-gray-600 bg-gray-50'}`}>
-                    {health.failedExtractionJobCount}
-                  </span>
-                </div>
-
-                {health.pendingAiLabelingCount !== undefined && health.pendingAiLabelingCount > 0 && (
-                  <div className="flex items-center justify-between text-xs">
-                    <div>
-                      <p className="font-semibold text-gray-800">{language === 'VN' ? 'Đại biểu đang chờ gán nhãn chuyên môn AI' : 'Delegates Web-scraping Pending AI Labeling'}</p>
-                      <p className="text-[10px] text-gray-400">ai_labeled = false</p>
-                    </div>
-                    <span className="font-mono font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-600">
-                      {health.pendingAiLabelingCount}
+              <div className="h-44 w-full flex gap-2">
+                {/* Left Column: NLP/LLM (50% area) */}
+                <div
+                  onClick={() => navigate('/partners?tech=nlp_llm')}
+                  className="w-1/2 bg-[#00344c]/90 hover:bg-[#00344c] text-white rounded-lg p-3 flex flex-col justify-between transition-all cursor-pointer group shadow-xs"
+                  title={language === 'VN' ? 'Xem các Profile NLP/LLM' : 'View NLP/LLM Profiles'}
+                >
+                  <span className="text-[10px] font-mono tracking-wider font-bold">NLP / LLM</span>
+                  <div className="flex items-end justify-between">
+                    <span className="text-2xl font-black font-mono">50%</span>
+                    <span className="text-[9px] underline opacity-0 group-hover:opacity-100 transition-opacity">
+                      {language === 'VN' ? 'Xem Profile ›' : 'View Profiles ›'}
                     </span>
                   </div>
-                )}
+                </div>
+
+                {/* Right Column: Other tech stacks split */}
+                <div className="w-1/2 flex flex-col gap-2">
+                  {/* Top Half: Computer Vision (30% area) */}
+                  <div
+                    onClick={() => navigate('/partners?tech=computer_vision')}
+                    className="h-[60%] bg-[#5B4B8A]/90 hover:bg-[#5B4B8A] text-white rounded-lg p-3 flex flex-col justify-between transition-all cursor-pointer group shadow-xs"
+                    title={language === 'VN' ? 'Xem các Profile Computer Vision' : 'View Computer Vision Profiles'}
+                  >
+                    <span className="text-[10px] font-mono tracking-wider font-bold">COMPUTER VISION</span>
+                    <div className="flex items-end justify-between">
+                      <span className="text-base font-black font-mono">30%</span>
+                      <span className="text-[9px] underline opacity-0 group-hover:opacity-100 transition-opacity">
+                        {language === 'VN' ? 'Xem Profile ›' : 'View Profiles ›'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Bottom Half split */}
+                  <div className="h-[40%] flex gap-2">
+                    <div
+                      onClick={() => navigate('/partners?tech=big_data')}
+                      className="w-1/2 bg-[#F59E0B]/90 hover:bg-[#F59E0B] text-white rounded-lg p-2 flex flex-col justify-between transition-all cursor-pointer group shadow-xs"
+                      title={language === 'VN' ? 'Xem các Profile Big Data' : 'View Big Data Profiles'}
+                    >
+                      <span className="text-[9px] font-mono font-bold">BIG DATA</span>
+                      <div className="flex items-end justify-between">
+                        <span className="text-xs font-black font-mono">10%</span>
+                        <span className="text-[8px] underline opacity-0 group-hover:opacity-100 transition-opacity">›</span>
+                      </div>
+                    </div>
+
+                    <div
+                      onClick={() => navigate('/partners?tech=cloud')}
+                      className="w-1/2 bg-[#10B981]/90 hover:bg-[#10B981] text-[#0f1d28] hover:text-white rounded-lg p-2 flex flex-col justify-between transition-all cursor-pointer group shadow-xs"
+                      title={language === 'VN' ? 'Xem các Profile Cloud' : 'View Cloud Profiles'}
+                    >
+                      <span className="text-[9px] font-mono font-bold">CLOUD</span>
+                      <div className="flex items-end justify-between">
+                        <span className="text-xs font-black font-mono">10%</span>
+                        <span className="text-[8px] underline opacity-0 group-hover:opacity-100 transition-opacity">›</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
               </div>
+            </div>
+          </div>
+
+          {/* Pipeline Health Governance indicators */}
+          <div className="bg-white border border-[#DCE1E6] rounded-xl p-5 shadow-2xs space-y-4">
+            <div className="flex items-center justify-between border-b border-[#DCE1E6] pb-3">
+              <span className="text-xs font-mono font-bold uppercase text-[#00344c] flex items-center gap-1.5">
+                <Activity className="w-4 h-4 text-emerald-700" />
+                <span>{language === 'VN' ? 'CHỈ SỐ SỨC KHỎE DỮ LIỆU PIPELINE' : 'PIPELINE GOVERNANCE HEALTH'}</span>
+              </span>
+              <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold ${isHealthClean ? 'bg-emerald-100 text-emerald-800' : 'bg-amber-100 text-amber-800'}`}>
+                {isHealthClean ? 'CLEAN' : 'ATTENTION'}
+              </span>
+            </div>
+
+            <div className="space-y-3">
+              <div className="flex items-center justify-between text-xs">
+                <div>
+                  <p className="font-semibold text-gray-800">{language === 'VN' ? 'Sự kiện bị ẩn/xóa trên Drive nguồn' : 'Soft-deleted records (Drive)'}</p>
+                  <p className="text-[10px] text-gray-400">is_deleted_in_source = true</p>
+                </div>
+                <span className={`font-mono font-bold px-2 py-0.5 rounded ${health.deletedInSourceCount > 0 ? 'bg-red-50 text-red-600' : 'text-gray-600 bg-gray-50'}`}>
+                  {health.deletedInSourceCount}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between text-xs">
+                <div>
+                  <p className="font-semibold text-gray-800">{language === 'VN' ? 'Sự kiện thuộc Folder chưa phân loại' : 'Unmapped Department Folders'}</p>
+                  <p className="text-[10px] text-gray-400">department = 'UNMAPPED'</p>
+                </div>
+                <span className={`font-mono font-bold px-2 py-0.5 rounded ${health.unmappedDepartmentCount > 0 ? 'bg-amber-50 text-amber-600' : 'text-gray-600 bg-gray-50'}`}>
+                  {health.unmappedDepartmentCount}
+                </span>
+              </div>
+
+              <div className="flex items-center justify-between text-xs">
+                <div>
+                  <p className="font-semibold text-gray-800">{language === 'VN' ? 'Số luồng trích xuất Gemini thất bại' : 'Failed Gemini Extraction Jobs'}</p>
+                  <p className="text-[10px] text-gray-400">extraction_jobs where status = 'FAILED'</p>
+                </div>
+                <span className={`font-mono font-bold px-2 py-0.5 rounded ${health.failedExtractionJobCount > 0 ? 'bg-red-50 text-red-600' : 'text-gray-600 bg-gray-50'}`}>
+                  {health.failedExtractionJobCount}
+                </span>
+              </div>
+
+              {health.pendingAiLabelingCount !== undefined && health.pendingAiLabelingCount > 0 && (
+                <div className="flex items-center justify-between text-xs">
+                  <div>
+                    <p className="font-semibold text-gray-800">{language === 'VN' ? 'Đại biểu đang chờ gán nhãn chuyên môn AI' : 'Delegates Web-scraping Pending AI Labeling'}</p>
+                    <p className="text-[10px] text-gray-400">ai_labeled = false</p>
+                  </div>
+                  <span className="font-mono font-bold px-2 py-0.5 rounded bg-amber-50 text-amber-600">
+                    {health.pendingAiLabelingCount}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         </div>

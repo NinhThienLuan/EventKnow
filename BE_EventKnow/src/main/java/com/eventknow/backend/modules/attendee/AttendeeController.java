@@ -243,6 +243,25 @@ public class AttendeeController {
         }
 
         private Map<String, Object> mapToAttendeeSummary(AttendeeProfileEntity entity) {
+                // Fetch precise event history and map to frontend target structure
+                List<EventAttendanceEntity> attendances = eventAttendanceRepository.findByAttendeeProfile(entity);
+
+                EventAttendanceEntity latest = AttendeeProfileMapper.findLatestAttendance(attendances);
+                String latestPosition = "";
+                String latestOrgName = "";
+                if (latest != null) {
+                        latestPosition = AttendeeProfileMapper.getTitleAtEvent(latest);
+                        latestOrgName = AttendeeProfileMapper.getCompanyAtEvent(latest);
+                }
+                if (latestPosition.isEmpty()) {
+                        latestPosition = entity.getPosition() != null ? entity.getPosition() : "";
+                }
+                if (latestOrgName.isEmpty()) {
+                        latestOrgName = entity.getOrganization() != null ? entity.getOrganization().getOrgName()
+                                        : (entity.getOrganizationTextRaw() != null ? entity.getOrganizationTextRaw()
+                                                        : "");
+                }
+
                 Map<String, Object> map = new LinkedHashMap<>();
                 map.put("id", entity.getId().toString());
                 map.put("fullName", entity.getFullName());
@@ -254,9 +273,8 @@ public class AttendeeController {
                                 entity.getAcademicTitleNormalized() != null ? entity.getAcademicTitleNormalized()
                                                 : Collections.emptyList());
                 map.put("attendeeRole", entity.getAttendeeRole() != null ? entity.getAttendeeRole().name() : "");
-                map.put("position", entity.getPosition() != null ? entity.getPosition() : "");
-                map.put("organizationName", entity.getOrganization() != null ? entity.getOrganization().getOrgName()
-                                : (entity.getOrganizationTextRaw() != null ? entity.getOrganizationTextRaw() : ""));
+                map.put("position", latestPosition);
+                map.put("organizationName", latestOrgName);
                 map.put("followUpStatus", entity.getFollowUpStatus().name());
                 map.put("researchFieldsRaw",
                                 entity.getResearchFieldsRaw() != null ? entity.getResearchFieldsRaw()
@@ -276,7 +294,6 @@ public class AttendeeController {
                 map.put("notes", Collections.emptyList());
 
                 // Fetch source counts
-                List<EventAttendanceEntity> attendances = eventAttendanceRepository.findByAttendeeProfile(entity);
                 map.put("sourceFileCount", attendances.size());
 
                 List<Map<String, Object>> sourceSheetsList = attendances.stream().map(att -> {
@@ -301,6 +318,11 @@ public class AttendeeController {
                         sheetMap.put("attendanceStatus", att.getAttendanceStatus().name());
                         sheetMap.put("snapshotData",
                                         att.getSnapshotData() != null ? att.getSnapshotData() : Collections.emptyMap());
+
+                        String title = AttendeeProfileMapper.getTitleAtEvent(att);
+                        String company = AttendeeProfileMapper.getCompanyAtEvent(att);
+                        sheetMap.put("roleInEvent", AttendeeProfileMapper.buildRoleInEvent(title, company));
+
                         return sheetMap;
                 }).collect(Collectors.toList());
                 map.put("sourceSheets", sourceSheetsList);
@@ -335,6 +357,11 @@ public class AttendeeController {
                         sheetMap.put("attendanceStatus", att.getAttendanceStatus().name());
                         sheetMap.put("snapshotData",
                                         att.getSnapshotData() != null ? att.getSnapshotData() : Collections.emptyMap());
+
+                        String title = AttendeeProfileMapper.getTitleAtEvent(att);
+                        String company = AttendeeProfileMapper.getCompanyAtEvent(att);
+                        sheetMap.put("roleInEvent", AttendeeProfileMapper.buildRoleInEvent(title, company));
+
                         return sheetMap;
                 }).collect(Collectors.toList());
 
