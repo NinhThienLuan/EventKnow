@@ -20,6 +20,9 @@ export interface AttendeeProfile {
         attendanceStatus: string;
         snapshotData?: Record<string, any>;
     }>;
+    isCrossDomain?: boolean | null;
+    events?: any[];
+    notes?: any[];
 }
 
 export interface OrganizationProfile {
@@ -209,4 +212,70 @@ export async function splitEntities(mergeLogId: string): Promise<any> {
     }
 
     return response.json();
+}
+
+export interface SearchEvent {
+    eventId: string;
+    eventName: string;
+    eventDate: string;
+    department: string;
+    attendeeRole: string;
+}
+
+export interface SearchAttendee {
+    resolvedPersonId: string;
+    fullName: string;
+    email: string;
+    organizationName: string;
+    academicTitle: string[];
+    attendeeRole: string;
+    position: string;
+    researchDomains: string[];
+    expertiseTags: string[];
+    totalEventsAttended: number;
+    isCrossDomain: boolean | null;
+    events: SearchEvent[];
+}
+
+// Advanced Search Attendees
+export async function searchAttendees(filters: {
+    query?: string;
+    startDate?: string;
+    endDate?: string;
+    researchDomains?: string[];
+    expertiseTags?: string[];
+    academicTitle?: string;
+    role?: string;
+    department?: string;
+    page?: number;
+    size?: number;
+} = {}): Promise<{ content: SearchAttendee[]; totalPages: number; totalElements: number }> {
+    const queryParams = new URLSearchParams();
+    if (filters.query) queryParams.append('query', filters.query);
+    if (filters.startDate) queryParams.append('startDate', filters.startDate);
+    if (filters.endDate) queryParams.append('endDate', filters.endDate);
+    if (filters.academicTitle) queryParams.append('academicTitle', filters.academicTitle);
+    if (filters.role) queryParams.append('role', filters.role);
+    if (filters.department) queryParams.append('department', filters.department);
+    if (filters.page !== undefined) queryParams.append('page', String(filters.page));
+    if (filters.size !== undefined) queryParams.append('size', String(filters.size));
+
+    if (filters.researchDomains && filters.researchDomains.length > 0) {
+        filters.researchDomains.forEach(domain => queryParams.append('researchDomains', domain));
+    }
+    if (filters.expertiseTags && filters.expertiseTags.length > 0) {
+        filters.expertiseTags.forEach(tag => queryParams.append('expertiseTags', tag));
+    }
+
+    const response = await fetch(`/api/search/attendees?${queryParams.toString()}`, {
+        method: 'GET',
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to search attendees: ${response.statusText}`);
+    }
+
+    const json = await response.json();
+    return json.data || json;
 }

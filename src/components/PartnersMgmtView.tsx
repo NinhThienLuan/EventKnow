@@ -24,7 +24,9 @@ import {
   ChevronRight,
   ShieldCheck,
   X,
-  FileText
+  FileText,
+  ChevronDown,
+  ChevronUp
 } from 'lucide-react';
 import {
   MOCK_ATTENDEE_PROFILES,
@@ -37,7 +39,8 @@ import {
   fetchAttendeeDetail,
   fetchOrganizations,
   fetchOrganizationDetail,
-  updateAttendeeStatus
+  updateAttendeeStatus,
+  searchAttendees
 } from '../lib/identityApi';
 import { PaginationControls } from './common/PaginationControls';
 
@@ -56,10 +59,44 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
 
   // Individual Filters State
   const [attendees, setAttendees] = useState<AttendeeProfile[]>([]);
+  const [searchTerm, setSearchTerm] = useState('');
   const [indSearchQuery, setIndSearchQuery] = useState('');
   const [roleFilter, setRoleFilter] = useState<'ALL' | 'SPEAKER' | 'EXPERT' | 'GUEST' | 'SPONSOR'>('ALL');
   const [statusFilter, setStatusFilter] = useState<'ALL' | 'CHUA_LIEN_HE' | 'DA_LIEN_HE' | 'DANG_HOP_TAC' | 'TU_CHOI'>('ALL');
   const [academicFilter, setAcademicFilter] = useState<string>('ALL');
+
+  // Advanced search specific states
+  const [startDate, setStartDate] = useState('');
+  const [endDate, setEndDate] = useState('');
+  const [departmentFilter, setDepartmentFilter] = useState('ALL');
+  const [showCrossDomainOnly, setShowCrossDomainOnly] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
+  // Debouncing hooks
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setIndSearchQuery(searchTerm);
+    }, 350);
+    return () => clearTimeout(handler);
+  }, [searchTerm]);
+
+  const [domainInput, setDomainInput] = useState('');
+  const [debouncedDomainInput, setDebouncedDomainInput] = useState('');
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedDomainInput(domainInput);
+    }, 350);
+    return () => clearTimeout(handler);
+  }, [domainInput]);
+
+  const [tagInput, setTagInput] = useState('');
+  const [debouncedTagInput, setDebouncedTagInput] = useState('');
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setDebouncedTagInput(tagInput);
+    }, 350);
+    return () => clearTimeout(handler);
+  }, [tagInput]);
 
   // Ind Pagination
   const [attendeesPage, setAttendeesPage] = useState(0);
@@ -85,10 +122,37 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
   // Note Input State
   const [newNoteText, setNewNoteText] = useState('');
 
+  // Reset all filters in individuals view
+  const handleResetFilters = () => {
+    setSearchTerm('');
+    setIndSearchQuery('');
+    setRoleFilter('ALL');
+    setStatusFilter('ALL');
+    setAcademicFilter('ALL');
+    setStartDate('');
+    setEndDate('');
+    setDepartmentFilter('ALL');
+    setDomainInput('');
+    setTagInput('');
+    setShowCrossDomainOnly(false);
+    setAttendeesPage(0);
+  };
+
   // Reset page when filters change
   useEffect(() => {
     setAttendeesPage(0);
-  }, [indSearchQuery, roleFilter, statusFilter, academicFilter]);
+  }, [
+    indSearchQuery,
+    roleFilter,
+    statusFilter,
+    academicFilter,
+    departmentFilter,
+    startDate,
+    endDate,
+    debouncedDomainInput,
+    debouncedTagInput,
+    showCrossDomainOnly
+  ]);
 
   useEffect(() => {
     setOrgsPage(0);
@@ -100,15 +164,57 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
   useEffect(() => {
     const loadAttendees = async () => {
       try {
-        const res = await fetchAttendees({
-          search: indSearchQuery,
+        const domains = debouncedDomainInput ? debouncedDomainInput.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+        const tags = debouncedTagInput ? debouncedTagInput.split(',').map(s => s.trim()).filter(Boolean) : undefined;
+
+        const res = await searchAttendees({
+          query: indSearchQuery || undefined,
           role: roleFilter === 'ALL' ? undefined : roleFilter,
-          status: statusFilter === 'ALL' ? undefined : statusFilter,
           academicTitle: academicFilter === 'ALL' ? undefined : academicFilter,
+          department: departmentFilter === 'ALL' ? undefined : departmentFilter,
+          startDate: startDate || undefined,
+          endDate: endDate || undefined,
+          researchDomains: domains,
+          expertiseTags: tags,
           page: attendeesPage,
           size: attendeesSize
         });
-        setAttendees(res.content);
+
+        // Map SearchAttendee to individual structure for compatibility
+        const mapped = res.content.map(item => ({
+          id: item.resolvedPersonId,
+          fullName: item.fullName,
+          normalizedName: item.email ? item.email.split('@')[0] : '',
+          email: item.email || '',
+          phone: '',
+          academicTitleRaw: '',
+          academicTitleNormalized: item.academicTitle || [],
+          attendeeRole: (item.attendeeRole || '') as any,
+          position: item.position || '',
+          organizationName: item.organizationName || '',
+          followUpStatus: 'CHUA_LIEN_HE' as any, // fallback status
+          dynamicAttributes: {},
+          sourceFileCount: item.totalEventsAttended || 0,
+          isCrossDomain: item.isCrossDomain,
+          events: item.events || [],
+          notes: [],
+          sourceSheets: item.events ? item.events.map(ev => ({
+            eventName: ev.eventName,
+            fileName: '', // placeholder for layout compatibility
+            sheetName: '',
+            eventDate: ev.eventDate,
+            attendanceStatus: ev.attendeeRole || '',
+            roleInEvent: ev.attendeeRole || ''
+          })) : []
+        }));
+
+        // Local filter for cross domain status
+        let finalContent = mapped;
+        if (showCrossDomainOnly) {
+          finalContent = mapped.filter(item => item.isCrossDomain === true);
+        }
+
+        setAttendees(finalContent);
         setAttendeesTotalPages(res.totalPages);
         setAttendeesTotalElements(res.totalElements);
       } catch (err) {
@@ -116,7 +222,20 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
       }
     };
     loadAttendees();
-  }, [indSearchQuery, roleFilter, statusFilter, academicFilter, attendeesPage, attendeesSize]);
+  }, [
+    indSearchQuery,
+    roleFilter,
+    statusFilter,
+    academicFilter,
+    departmentFilter,
+    startDate,
+    endDate,
+    debouncedDomainInput,
+    debouncedTagInput,
+    showCrossDomainOnly,
+    attendeesPage,
+    attendeesSize
+  ]);
 
   useEffect(() => {
     const loadOrgs = async () => {
@@ -415,20 +534,42 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
           {/* Filter Bar */}
           <div className="bg-white border border-[#DCE1E6] rounded-xl p-4 shadow-2xs space-y-3">
             <div className="flex flex-col md:flex-row items-stretch md:items-center justify-between gap-3">
-              {/* Search Bar */}
-              <div className="relative flex-1">
-                <Search className="w-4 h-4 text-[#72787e] absolute left-3 top-2.5" />
-                <input
-                  type="text"
-                  value={indSearchQuery}
-                  onChange={(e) => setIndSearchQuery(e.target.value)}
-                  placeholder={
-                    language === 'VN'
-                      ? 'Tìm theo tên, email, học hàm (GS, TS), tổ chức, tên sheet...'
-                      : 'Search name, email, academic title, org, sheet name...'
-                  }
-                  className="w-full pl-9 pr-4 py-2 text-xs bg-[#F8FAFC] border border-[#DCE1E6] rounded-lg text-[#0f1d28] focus:outline-none focus:border-[#00344c]"
-                />
+              {/* Search Bar & Advanced Settings */}
+              <div className="relative flex-1 flex gap-2">
+                <div className="relative flex-1">
+                  <Search className="w-4 h-4 text-[#72787e] absolute left-3 top-2.5" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder={
+                      language === 'VN'
+                        ? 'Tìm theo tên, email, lĩnh vực hoặc học hàm...'
+                        : 'Search name, email, domains or academic title...'
+                    }
+                    className="w-full pl-9 pr-4 py-2 text-xs bg-[#F8FAFC] border border-[#DCE1E6] rounded-lg text-[#0f1d28] focus:outline-none focus:border-[#00344c]"
+                  />
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setShowAdvanced(!showAdvanced)}
+                  className="px-3 py-2 bg-[#EEF1F4] text-[#00344c] hover:bg-gray-200 text-xs font-semibold rounded-lg flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+                >
+                  <Filter className="w-3.5 h-3.5" />
+                  <span>{language === 'VN' ? 'Bộ lọc nâng cao' : 'Advanced Filters'}</span>
+                  {showAdvanced ? <ChevronUp className="w-3 h-3" /> : <ChevronDown className="w-3 h-3" />}
+                </button>
+
+                <button
+                  type="button"
+                  onClick={handleResetFilters}
+                  className="px-3 py-2 bg-red-50 text-red-700 hover:bg-red-100 text-xs font-semibold rounded-lg flex items-center gap-1 cursor-pointer shrink-0 transition-colors"
+                  title={language === 'VN' ? 'Đặt lại bộ lọc' : 'Reset Filters'}
+                >
+                  <X className="w-3.5 h-3.5" />
+                  <span>{language === 'VN' ? 'Đặt lại' : 'Reset'}</span>
+                </button>
               </div>
 
               {/* Role Quick Filters */}
@@ -485,6 +626,86 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
                 </button>
               </div>
             </div>
+
+            {/* Advanced Filters Panel */}
+            {showAdvanced && (
+              <div className="pt-3 border-t border-[#DCE1E6]/60 grid grid-cols-2 md:grid-cols-4 gap-3 text-xs">
+                {/* Date range */}
+                <div className="space-y-1.5">
+                  <span className="text-[#72787e] font-semibold block">{language === 'VN' ? 'Từ ngày:' : 'From:'}</span>
+                  <input
+                    type="date"
+                    value={startDate}
+                    onChange={(e) => setStartDate(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-[#F8FAFC] border border-[#DCE1E6] rounded-md text-xs font-medium focus:outline-none focus:border-[#00344c]"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <span className="text-[#72787e] font-semibold block">{language === 'VN' ? 'Đến ngày:' : 'To:'}</span>
+                  <input
+                    type="date"
+                    value={endDate}
+                    onChange={(e) => setEndDate(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-[#F8FAFC] border border-[#DCE1E6] rounded-md text-xs font-medium focus:outline-none focus:border-[#00344c]"
+                  />
+                </div>
+
+                {/* Department drop-down */}
+                <div className="space-y-1.5">
+                  <span className="text-[#72787e] font-semibold block">{language === 'VN' ? 'Đơn vị tổ chức:' : 'Hosting Dept:'}</span>
+                  <select
+                    value={departmentFilter}
+                    onChange={(e) => setDepartmentFilter(e.target.value)}
+                    className="w-full px-2.5 py-1.5 bg-[#F8FAFC] border border-[#DCE1E6] rounded-md text-xs font-medium focus:outline-none focus:border-[#00344c] cursor-pointer"
+                  >
+                    <option value="ALL">{language === 'VN' ? 'Tất cả đơn vị' : 'All Departments'}</option>
+                    <option value="SIHUB">SIHUB</option>
+                    <option value="Văn phòng">Văn phòng</option>
+                    <option value="Trung tâm Thông tin">Trung tâm Thông tin</option>
+                    <option value="Phòng QLKH">Phòng QLKH</option>
+                    <option value="Phòng Hợp tác Quốc tế">Phòng Hợp tác Quốc tế</option>
+                  </select>
+                </div>
+
+                {/* Cross-domain Toggle */}
+                <div className="space-y-1.5 flex flex-col justify-end">
+                  <label className="flex items-center gap-2 cursor-pointer py-1.5">
+                    <input
+                      type="checkbox"
+                      checked={showCrossDomainOnly}
+                      onChange={(e) => setShowCrossDomainOnly(e.target.checked)}
+                      className="rounded border-[#DCE1E6] text-[#00344c] focus:ring-[#00344c] w-4 h-4 cursor-pointer"
+                    />
+                    <span className="font-semibold text-[#41474d]">{language === 'VN' ? 'Chỉ hiện liên ngành' : 'Show interdisciplinary only'}</span>
+                  </label>
+                </div>
+
+                {/* Domain Input */}
+                <div className="space-y-1.5 col-span-2">
+                  <span className="text-[#72787e] font-semibold block">{language === 'VN' ? 'Lĩnh vực nghiên cứu (dấu phẩy cách nhau):' : 'Research Domains (comma-separated):'}</span>
+                  <input
+                    type="text"
+                    value={domainInput}
+                    onChange={(e) => setDomainInput(e.target.value)}
+                    placeholder="Ví dụ: AI, LIFE_SCI"
+                    className="w-full px-2.5 py-1.5 bg-[#F8FAFC] border border-[#DCE1E6] rounded-md text-xs font-medium focus:outline-none focus:border-[#00344c]"
+                  />
+                </div>
+
+                {/* Tag Input */}
+                <div className="space-y-1.5 col-span-2">
+                  <span className="text-[#72787e] font-semibold block">{language === 'VN' ? 'Kỹ năng / Expertise (dấu phẩy cách nhau):' : 'Expertise Tags (comma-separated):'}</span>
+                  <input
+                    type="text"
+                    value={tagInput}
+                    onChange={(e) => setTagInput(e.target.value)}
+                    placeholder="Ví dụ: Machine Learning, Big Data"
+                    className="w-full px-2.5 py-1.5 bg-[#F8FAFC] border border-[#DCE1E6] rounded-md text-xs font-medium focus:outline-none focus:border-[#00344c]"
+                  />
+                </div>
+              </div>
+            )}
 
             {/* Secondary Filters: Status & Academic Tag */}
             <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-[#DCE1E6]/60 text-xs">
@@ -549,7 +770,19 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
                     >
                       <td className="py-3 px-4">
                         <div className="space-y-1">
-                          <p className="font-extrabold text-[#0f1d28] group-hover:text-[#00344c] text-sm transition-colors">{att.fullName}</p>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className="font-extrabold text-[#0f1d28] group-hover:text-[#00344c] text-sm transition-colors">{att.fullName}</p>
+                            {att.isCrossDomain && (
+                              <span
+                                className="group/cd relative inline-flex items-center px-1.5 py-0.5 rounded-full text-[9px] font-extrabold bg-indigo-50 text-indigo-700 border border-indigo-200 cursor-help transition-all shrink-0"
+                              >
+                                {language === 'VN' ? 'Liên ngành' : 'Interdisciplinary'}
+                                <span className="absolute bottom-full left-1/2 transform -translate-x-1/2 mb-1.5 w-48 hidden group-hover/cd:block bg-slate-800 text-white text-[10px] text-center rounded-lg p-2 shadow-lg leading-normal z-50">
+                                  {language === 'VN' ? 'Đã tham gia nhiều lĩnh vực/sự kiện liên ngành.' : 'Participated in multiple interdisciplinary event domains.'}
+                                </span>
+                              </span>
+                            )}
+                          </div>
                           <div className="flex items-center gap-1.5 flex-wrap">
                             {att.academicTitleNormalized.map((tag) => (
                               <span
@@ -970,7 +1203,7 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
 
                 {/* Existing Notes List */}
                 <div className="space-y-2">
-                  {selectedAttendee.notes.map((n) => (
+                  {(selectedAttendee.notes || []).map((n) => (
                     <div key={n.id} className="bg-[#F8FAFC] border border-[#DCE1E6] rounded-xl p-3 space-y-1">
                       <p className="text-xs text-[#0f1d28] leading-relaxed">{n.noteText}</p>
                       <div className="flex items-center justify-between text-[10px] font-mono text-[#72787e]">
@@ -980,7 +1213,7 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
                     </div>
                   ))}
 
-                  {selectedAttendee.notes.length === 0 && (
+                  {(selectedAttendee.notes || []).length === 0 && (
                     <p className="text-xs text-[#72787e] italic py-2">
                       {language === 'VN' ? 'Chưa có ghi chú vận hành nào cho cá nhân này.' : 'No operational notes yet.'}
                     </p>
