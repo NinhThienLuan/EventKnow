@@ -122,6 +122,7 @@ public class RecommendationService {
         String contentSql = "SELECT " +
                 "  ap.id AS resolved_person_id, " +
                 "  ap.full_name, " +
+                "  ap.follow_up_status, " +
                 "  o.org_name AS organization_name, " +
                 "  mt.tags AS matched_tags, " +
                 "  cardinality(mt.tags) AS match_count, " +
@@ -161,6 +162,7 @@ public class RecommendationService {
                 UUID resolvedPersonId = rs.getObject("resolved_person_id", UUID.class);
                 String fullName = rs.getString("full_name");
                 String organizationName = rs.getString("organization_name");
+                String followUpStatus = rs.getString("follow_up_status");
                 int matchCount = rs.getInt("match_count");
                 long totalEvents = rs.getLong("total_events_attended");
 
@@ -180,9 +182,148 @@ public class RecommendationService {
                         .matchCount(matchCount)
                         .reason(reason)
                         .totalEventsAttended(totalEvents)
+                        .followUpStatus(followUpStatus != null ? followUpStatus : "CHUA_LIEN_HE")
                         .build();
             } catch (Exception e) {
                 log.error("Failed to map recommendation row to DTO", e);
+                throw new SQLException("Mapping failed", e);
+            }
+        });
+
+        return new PageImpl<>(content, PageRequest.of(page, size), total);
+    }
+
+    public Page<RecommendGuestDto> getPreviewRecommendations(
+            List<String> tags,
+            int minOverlapCount,
+            int page,
+            int size,
+            String viewerEmail,
+            boolean isAdmin) {
+
+        log.info("Fetching preview recommendations for tags={}, minOverlapCount={}, page={}, size={}",
+                tags, minOverlapCount, page, size);
+
+        if (tags == null || tags.isEmpty()) {
+            return new PageImpl<>(List.of(), PageRequest.of(page, size), 0);
+        }
+
+        // 1. Event-level RLS validation for preview: Only return candidates that have
+        // at least one visible raw event file for the user.
+        List<UUID> visibleRawEventIds = permissionFilterService.getVisibleRawEventIds(viewerEmail, isAdmin);
+        if (visibleRawEventIds != null && visibleRawEventIds.isEmpty()) {
+            log.info("RLS denial: User has no visible raw events.");
+            return new PageImpl<>(List.of(), PageRequest.of(page, size), 0);
+        }
+
+        // 2. Build parameters
+        MapSqlParameterSource params = new MapSqlParameterSource();
+        params.addValue("previewTags", tags.toArray(String[]::new));
+        params.addValue("minOverlapCount", minOverlapCount);
+        params.addValue("size", size);
+        params.addValue("offset", page * size);
+        if (visibleRawEventIds != null) {
+            params.addValue("visibleRawEventIds", visibleRawEventIds.toArray(UUID[]::new));
+        }
+
+        // 3. Query Count
+        String countSql = "SELECT COUNT(DISTINCT ap.id) " +
+                "FROM attendee_profiles ap " +
+                "CROSS JOIN LATERAL ( " +
+                "  SELECT ARRAY( " +
+                "    SELECT unnest(ap.expertise_tags) " +
+                "    INTERSECT " +
+                "    SELECT unnest(:previewTags::text[]) " +
+                "  ) AS tags " +
+                ") mt " +
+                "WHERE ap.is_active = true " +
+                "  AND ap.merged_into_id IS NULL " +
+                "  AND ap.expertise_tags && :previewTags::text[] " +
+                "  AND cardinality(mt.tags) >= :minOverlapCount";
+
+        if (visibleRawEventIds != null) {
+            countSql += "  AND EXISTS ( " +
+                    "    SELECT 1 FROM event_attendance ea2 " +
+                    "    JOIN raw_events re2 ON ea2.raw_event_id = re2.id " +
+                    "    WHERE ea2.attendee_profile_id = ap.id " +
+                    "      AND re2.id = ANY(:visibleRawEventIds::uuid[]) " +
+                    "  )";
+        }
+
+        Long totalLong = jdbc.queryForObject(countSql, params, Long.class);
+        long total = totalLong != null ? totalLong : 0L;
+
+        if (total == 0L) {
+            return new PageImpl<>(List.of(), PageRequest.of(page, size), 0);
+        }
+
+        // 4. Query Content
+        String contentSql = "SELECT " +
+                "  ap.id AS resolved_person_id, " +
+                "  ap.full_name, " +
+                "  ap.follow_up_status, " +
+                "  o.org_name AS organization_name, " +
+                "  mt.tags AS matched_tags, " +
+                "  cardinality(mt.tags) AS match_count, " +
+                "  (SELECT COUNT(DISTINCT re_ea.event_id) " +
+                "   FROM event_attendance ea " +
+                "   JOIN raw_events re_ea ON ea.raw_event_id = re_ea.id " +
+                "   JOIN attendee_profiles ap_orig ON ea.attendee_profile_id = ap_orig.id " +
+                "   WHERE COALESCE(ap_orig.merged_into_id, ap_orig.id) = ap.id " +
+                "     AND ea.is_deleted_in_source = false) AS total_events_attended " +
+                "FROM attendee_profiles ap " +
+                "LEFT JOIN organizations o ON ap.organization_id = o.id " +
+                "CROSS JOIN LATERAL ( " +
+                "  SELECT ARRAY( " +
+                "    SELECT unnest(ap.expertise_tags) " +
+                "    INTERSECT " +
+                "    SELECT unnest(:previewTags::text[]) " +
+                "  ) AS tags " +
+                ") mt " +
+                "WHERE ap.is_active = true " +
+                "  AND ap.merged_into_id IS NULL " +
+                "  AND ap.expertise_tags && :previewTags::text[] " +
+                "  AND cardinality(mt.tags) >= :minOverlapCount";
+
+        if (visibleRawEventIds != null) {
+            contentSql += "  AND EXISTS ( " +
+                    "    SELECT 1 FROM event_attendance ea2 " +
+                    "    JOIN raw_events re2 ON ea2.raw_event_id = re2.id " +
+                    "    WHERE ea2.attendee_profile_id = ap.id " +
+                    "      AND re2.id = ANY(:visibleRawEventIds::uuid[]) " +
+                    "  )";
+        }
+
+        contentSql += " ORDER BY match_count DESC, ap.full_name ASC " +
+                "LIMIT :size OFFSET :offset";
+
+        List<RecommendGuestDto> content = jdbc.query(contentSql, params, (rs, rowNum) -> {
+            try {
+                UUID resolvedPersonId = rs.getObject("resolved_person_id", UUID.class);
+                String fullName = rs.getString("full_name");
+                String organizationName = rs.getString("organization_name");
+                String followUpStatus = rs.getString("follow_up_status");
+                int matchCount = rs.getInt("match_count");
+                long totalEvents = rs.getLong("total_events_attended");
+
+                List<String> matchedTags = convertSqlArrayToList(rs.getArray("matched_tags"));
+                List<String> sortedMatchedTags = new ArrayList<>(matchedTags);
+                Collections.sort(sortedMatchedTags);
+
+                String reason = "Trúng tag: " + String.join(", ", sortedMatchedTags);
+
+                return RecommendGuestDto.builder()
+                        .resolvedPersonId(resolvedPersonId)
+                        .fullName(fullName)
+                        .organizationName(organizationName != null ? organizationName : "")
+                        .matchedTags(sortedMatchedTags)
+                        .matchCount(matchCount)
+                        .reason(reason)
+                        .totalEventsAttended(totalEvents)
+                        .followUpStatus(followUpStatus != null ? followUpStatus : "CHUA_LIEN_HE")
+                        .build();
+            } catch (Exception e) {
+                log.error("Failed to map preview recommendation row to DTO", e);
                 throw new SQLException("Mapping failed", e);
             }
         });

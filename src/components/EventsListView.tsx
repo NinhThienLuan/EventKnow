@@ -12,11 +12,18 @@ import {
     CheckSquare,
     Square,
     ArrowRight,
-    RefreshCw
+    RefreshCw,
+    X,
+    ChevronDown,
+    ChevronUp,
+    Sparkles
 } from 'lucide-react';
 import { SourceTree } from './SourceTree';
 import { PaginationControls } from './common/PaginationControls';
 import { useNavigate } from 'react-router-dom';
+import { updateAttendeeStatus } from '../lib/identityApi';
+import { fetchRecommendationPreview, fetchPopularTags, RecommendGuest } from '../lib/recommendationApi';
+
 
 interface EventItem {
     id: string;
@@ -73,6 +80,74 @@ export const EventsListView: React.FC<EventsListViewProps> = ({
     const [totalPages, setTotalPages] = useState(0);
     const [totalElements, setTotalElements] = useState(0);
     const pageSize = 10;
+
+    // Recommendation Preview Sandbox State
+    const [sandboxOpen, setSandboxOpen] = useState(false);
+    const [sandboxTags, setSandboxTags] = useState<string[]>([]);
+    const [tagInput, setTagInput] = useState('');
+    const [showTagSuggestions, setShowTagSuggestions] = useState(false);
+    const [popularTags, setPopularTags] = useState<string[]>([]);
+    const [minOverlap, setMinOverlap] = useState(1);
+    const [sandboxResults, setSandboxResults] = useState<RecommendGuest[]>([]);
+    const [sandboxLoading, setSandboxLoading] = useState(false);
+    const [sandboxError, setSandboxError] = useState<string | null>(null);
+    const [sandboxPage, setSandboxPage] = useState(0);
+    const [sandboxTotalPages, setSandboxTotalPages] = useState(0);
+    const [sandboxTotalElements, setSandboxTotalElements] = useState(0);
+    const [contactedMap, setContactedMap] = useState<Record<string, 'DA_LIEN_HE' | 'CHUA_LIEN_HE'>>({});
+    const [sandboxLayout, setSandboxLayout] = useState<'gallery' | 'list'>('gallery');
+
+    // Fetch popular tags when sandbox is opened
+    useEffect(() => {
+        if (sandboxOpen && popularTags.length === 0) {
+            const loadTags = async () => {
+                try {
+                    const tagsList = await fetchPopularTags();
+                    setPopularTags(tagsList || []);
+                } catch (err) {
+                    console.error('Failed to load popular tags', err);
+                }
+            };
+            loadTags();
+        }
+    }, [sandboxOpen, popularTags.length]);
+
+    const handleRunPreview = async (pageIdx = 0, layoutOverride?: 'gallery' | 'list') => {
+        if (sandboxTags.length === 0) {
+            setSandboxError(language === 'VN' ? 'Vui lòng chọn ít nhất một tag để xem thử.' : 'Please select at least one tag.');
+            return;
+        }
+        setSandboxLoading(true);
+        setSandboxError(null);
+        try {
+            const activeLayout = layoutOverride || sandboxLayout;
+            const size = activeLayout === 'gallery' ? 6 : 10;
+            const res = await fetchRecommendationPreview(sandboxTags, minOverlap, pageIdx, size);
+            setSandboxResults(res.content || []);
+            setSandboxTotalPages(res.totalPages || 0);
+            setSandboxTotalElements(res.totalElements || 0);
+            setSandboxPage(pageIdx);
+        } catch (err: any) {
+            console.error(err);
+            setSandboxError(err.message || 'Lỗi gợi ý xem thử.');
+        } finally {
+            setSandboxLoading(false);
+        }
+    };
+
+    const handleToggleContactStatus = async (guestId: string, currentStatus: string) => {
+        try {
+            const newStatus = currentStatus === 'DA_LIEN_HE' ? 'CHUA_LIEN_HE' : 'DA_LIEN_HE';
+            await updateAttendeeStatus(guestId, newStatus);
+            setContactedMap((prev) => ({
+                ...prev,
+                [guestId]: newStatus,
+            }));
+        } catch (err: any) {
+            console.error(err);
+            alert(language === 'VN' ? 'Cập nhật trạng thái liên hệ thất bại.' : 'Failed to update contact status.');
+        }
+    };
 
     // Reset page when filters change
     useEffect(() => {
@@ -187,6 +262,312 @@ export const EventsListView: React.FC<EventsListViewProps> = ({
                         <span>{t.treeMode}</span>
                     </button>
                 </div>
+            </div>
+
+            {/* Recommendation Preview Sandbox Panel */}
+            <div className="bg-white border border-[#DCE1E6] rounded-xl shadow-2xs transition-all duration-300">
+                <button
+                    onClick={() => setSandboxOpen(!sandboxOpen)}
+                    className="w-full flex items-center justify-between px-5 py-4 hover:bg-[#EEF1F4]/30 transition-colors text-left focus:outline-none cursor-pointer"
+                >
+                    <div className="flex items-center gap-2">
+                        <Sparkles className="w-4 h-4 text-[#5B4B8A]" />
+                        <span className="font-semibold text-sm text-[#00344c]">
+                            {isVN ? '🔍 Thử nghiệm: Ai sẽ phù hợp cho sự kiện mới ?' : '🔍 Sandbox: Who would a new event match?'}
+                        </span>
+                    </div>
+                    {sandboxOpen ? (
+                        <ChevronUp className="w-4 h-4 text-[#72787e]" />
+                    ) : (
+                        <ChevronDown className="w-4 h-4 text-[#72787e]" />
+                    )}
+                </button>
+
+                {sandboxOpen && (
+                    <div className="border-t border-[#EEF1F4] p-5 space-y-4 bg-[#F8FAFC]/50 text-left">
+                        {/* Filters row: Tags selector & minOverlap and action button */}
+                        <div className="grid grid-cols-1 md:grid-cols-5 gap-4 items-end">
+                            {/* Autocomplete Tag Selector */}
+                            <div className="md:col-span-3 space-y-1.5 relative">
+                                <label className="text-xs font-bold text-[#72787e] block">
+                                    {isVN ? 'Nhãn chủ đề sự kiện thử nghiệm (Gõ chọn hoặc tự nhập):' : 'Topic tags for sandbox event (Search or type):'}
+                                </label>
+                                <div className="flex flex-wrap gap-1.5 p-2 bg-white border border-[#DCE1E6] rounded-lg min-h-[36px] items-center shadow-3xs">
+                                    {sandboxTags.map(tag => (
+                                        <span key={tag} className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-bold border border-indigo-200 animate-fade-in">
+                                            {tag}
+                                            <button
+                                                type="button"
+                                                onClick={() => setSandboxTags(sandboxTags.filter(t => t !== tag))}
+                                                className="text-indigo-400 hover:text-indigo-700 focus:outline-none cursor-pointer"
+                                            >
+                                                <X className="w-2.5 h-2.5" />
+                                            </button>
+                                        </span>
+                                    ))}
+                                    <input
+                                        type="text"
+                                        value={tagInput}
+                                        onChange={(e) => {
+                                            setTagInput(e.target.value);
+                                            setShowTagSuggestions(true);
+                                        }}
+                                        onFocus={() => setShowTagSuggestions(true)}
+                                        onBlur={() => setTimeout(() => setShowTagSuggestions(false), 250)}
+                                        onKeyDown={(e) => {
+                                            if (e.key === 'Enter' && tagInput.trim()) {
+                                                e.preventDefault();
+                                                const val = tagInput.trim();
+                                                if (!sandboxTags.includes(val)) {
+                                                    setSandboxTags([...sandboxTags, val]);
+                                                }
+                                                setTagInput('');
+                                            }
+                                        }}
+                                        placeholder={isVN ? 'Gõ và Enter hoặc chọn gợi ý...' : 'Type & Enter or select suggestion...'}
+                                        className="flex-1 bg-transparent border-none text-xs focus:outline-none p-0 min-w-[120px]"
+                                    />
+                                </div>
+                                {showTagSuggestions && popularTags.length > 0 && (
+                                    <div className="absolute left-0 right-0 mt-1 bg-white border border-[#DCE1E6] rounded-lg shadow-md z-30 max-h-40 overflow-y-auto">
+                                        {popularTags
+                                            .filter(t => t.toLowerCase().includes(tagInput.toLowerCase()) && !sandboxTags.includes(t))
+                                            .map(t => (
+                                                <div
+                                                    key={t}
+                                                    onMouseDown={() => {
+                                                        setSandboxTags([...sandboxTags, t]);
+                                                        setTagInput('');
+                                                        setShowTagSuggestions(false);
+                                                    }}
+                                                    className="px-3 py-2 hover:bg-gray-100 cursor-pointer text-xs transition-colors"
+                                                >
+                                                    {t}
+                                                </div>
+                                            ))}
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* Dropdown Match Count */}
+                            <div className="space-y-1.5">
+                                <label className="text-xs font-bold text-[#72787e] block">
+                                    {isVN ? 'Độ khớp tối thiểu:' : 'Minimum Overlap:'}
+                                </label>
+                                <select
+                                    value={minOverlap}
+                                    onChange={(e) => setMinOverlap(Number(e.target.value))}
+                                    className="w-full bg-white border border-[#DCE1E6] rounded-lg px-3 py-2 text-xs font-medium text-[#1b2b36] outline-none shadow-3xs cursor-pointer focus:border-[#5B4B8A]"
+                                >
+                                    <option value={1}>{isVN ? 'Khớp ≥ 1 tag' : 'Overlap ≥ 1 tag'}</option>
+                                    <option value={2}>{isVN ? 'Khớp ≥ 2 tags' : 'Overlap ≥ 2 tags'}</option>
+                                    <option value={3}>{isVN ? 'Khớp ≥ 3 tags' : 'Overlap ≥ 3 tags'}</option>
+                                </select>
+                            </div>
+
+                            {/* Actions button */}
+                            <div>
+                                <button
+                                    onClick={() => handleRunPreview(0)}
+                                    disabled={sandboxLoading}
+                                    className="w-full bg-[#5B4B8A] hover:bg-[#6D5D9E] active:bg-[#4E3E75] text-white text-xs font-bold py-2 px-4 rounded-lg flex items-center justify-center gap-1.5 transition-all cursor-pointer shadow-xs disabled:opacity-50 min-h-[36px]"
+                                >
+                                    {sandboxLoading ? (
+                                        <div className="animate-spin rounded-full h-3.5 w-3.5 border-2 border-t-transparent border-white" />
+                                    ) : (
+                                        <Search className="w-3.5 h-3.5" />
+                                    )}
+                                    <span>{isVN ? 'Xem thử' : 'Preview'}</span>
+                                </button>
+                            </div>
+                        </div>
+
+                        {/* Error box */}
+                        {sandboxError && (
+                            <div className="p-3 bg-red-50 text-red-500 rounded-lg text-xs font-medium border border-red-200">
+                                {sandboxError}
+                            </div>
+                        )}
+
+                        {/* Sandbox Results Cards */}
+                        {sandboxResults.length > 0 ? (
+                            <div className="space-y-3 pt-3 border-t border-[#EEF1F4]">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                                    <h3 className="text-xs font-bold text-[#00344c] flex items-center gap-1.5">
+                                        <TrendingUp className="w-3.5 h-3.5 text-[#5B4B8A]" />
+                                        <span>
+                                            {isVN
+                                                ? `Gợi ý được ${sandboxTotalElements} khách mời phù hợp nhất:`
+                                                : `Found ${sandboxTotalElements} matches:`}
+                                        </span>
+                                    </h3>
+
+                                    {/* Display Layout Switcher */}
+                                    <div className="bg-[#E2E7EC] p-0.5 rounded-lg flex items-center border border-[#DCE1E6] text-[10px] font-semibold self-start sm:self-auto shrink-0 select-none">
+                                        <button
+                                            onClick={() => {
+                                                setSandboxLayout('gallery');
+                                                handleRunPreview(0, 'gallery');
+                                            }}
+                                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${sandboxLayout === 'gallery'
+                                                ? 'bg-white text-[#00344c] shadow-xs'
+                                                : 'text-[#41474d] hover:text-[#00344c]'
+                                                }`}
+                                        >
+                                            {isVN ? 'Dạng lưới (6)' : 'Gallery (6)'}
+                                        </button>
+                                        <button
+                                            onClick={() => {
+                                                setSandboxLayout('list');
+                                                handleRunPreview(0, 'list');
+                                            }}
+                                            className={`px-2.5 py-1 rounded-md transition-all cursor-pointer ${sandboxLayout === 'list'
+                                                ? 'bg-white text-[#00344c] shadow-xs'
+                                                : 'text-[#41474d] hover:text-[#00344c]'
+                                                }`}
+                                        >
+                                            {isVN ? 'Danh sách (10)' : 'List (10)'}
+                                        </button>
+                                    </div>
+                                </div>
+
+                                {sandboxLayout === 'list' ? (
+                                    <div className="flex flex-col gap-2.5 animate-fade-in">
+                                        {sandboxResults.map(guest => {
+                                            const isContacted = contactedMap[guest.resolvedPersonId]
+                                                ? contactedMap[guest.resolvedPersonId] === 'DA_LIEN_HE'
+                                                : guest.followUpStatus === 'DA_LIEN_HE';
+
+                                            return (
+                                                <div key={guest.resolvedPersonId} className="bg-white border border-[#DCE1E6] rounded-xl p-3 flex flex-col md:flex-row md:items-center justify-between gap-3 shadow-3xs hover:shadow-2xs transition-all text-left">
+                                                    <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 flex-1 min-w-0">
+                                                        <div className="font-semibold text-xs text-[#0f1d28] truncate hover:text-[#5B4B8A] cursor-pointer min-w-[120px]" onClick={() => navigate(`/attendee-detail/${guest.resolvedPersonId}`)}>
+                                                            {guest.fullName}
+                                                        </div>
+                                                        <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[9px] font-bold border border-emerald-250 shrink-0 select-none">
+                                                            {guest.matchCount} tag
+                                                        </span>
+                                                        <p className="text-[10px] text-[#72787e] font-medium truncate max-w-[200px]">
+                                                            {guest.organizationName || (isVN ? '(Không có tổ chức)' : '(No Organization)')}
+                                                        </p>
+                                                        <p className="text-[10px] text-[#5B4B8A] bg-indigo-50/40 px-2 py-0.5 rounded-md italic font-semibold border border-indigo-100/50 truncate max-w-[280px]">
+                                                            {guest.reason}
+                                                        </p>
+                                                        <p className="text-[9px] text-[#72787e] font-mono shrink-0">
+                                                            {isVN ? `Đã dự: ${guest.totalEventsAttended} sự kiện` : `Attended: ${guest.totalEventsAttended} events`}
+                                                        </p>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-3 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-[#EEF1F4]/75">
+                                                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${isContacted
+                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            : 'bg-orange-50 text-orange-700 border-orange-200'
+                                                            }`}>
+                                                            {isContacted
+                                                                ? (isVN ? 'Đã liên hệ' : 'Contacted')
+                                                                : (isVN ? 'Chưa liên hệ' : 'Not Contacted')}
+                                                        </span>
+
+                                                        <button
+                                                            onClick={() => handleToggleContactStatus(guest.resolvedPersonId, isContacted ? 'DA_LIEN_HE' : 'CHUA_LIEN_HE')}
+                                                            className="text-[10px] text-[#5B4B8A] hover:text-[#4E3E75] font-bold hover:underline cursor-pointer focus:outline-none"
+                                                        >
+                                                            {isContacted
+                                                                ? (isVN ? 'Đánh dấu chưa liên hệ' : 'Mark uncontacted')
+                                                                : (isVN ? 'Đánh dấu đã liên hệ' : 'Mark contacted')}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                ) : (
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 animate-fade-in">
+                                        {sandboxResults.map(guest => {
+                                            const isContacted = contactedMap[guest.resolvedPersonId]
+                                                ? contactedMap[guest.resolvedPersonId] === 'DA_LIEN_HE'
+                                                : guest.followUpStatus === 'DA_LIEN_HE';
+
+                                            return (
+                                                <div key={guest.resolvedPersonId} className="bg-white border border-[#DCE1E6] rounded-xl p-4 flex flex-col justify-between gap-3 shadow-3xs hover:shadow-2xs transition-shadow text-left">
+                                                    <div className="space-y-1.5">
+                                                        <div className="flex items-center justify-between gap-2">
+                                                            <div className="font-semibold text-xs text-[#0f1d28] truncate hover:text-[#5B4B8A] cursor-pointer" onClick={() => navigate(`/attendee-detail/${guest.resolvedPersonId}`)}>
+                                                                {guest.fullName}
+                                                            </div>
+                                                            <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700 text-[9px] font-bold border border-emerald-250 select-none">
+                                                                {guest.matchCount} tag
+                                                            </span>
+                                                        </div>
+
+                                                        <p className="text-[10px] text-[#72787e] font-medium truncate">
+                                                            {guest.organizationName || (isVN ? '(Không có tổ chức)' : '(No Organization)')}
+                                                        </p>
+
+                                                        <div className="flex flex-wrap gap-1">
+                                                            {guest.matchedTags.map(tag => (
+                                                                <span key={tag} className="text-[9px] bg-slate-100 text-slate-600 px-1.5 py-0.5 rounded font-medium border border-slate-200">
+                                                                    {tag}
+                                                                </span>
+                                                            ))}
+                                                        </div>
+
+                                                        <p className="text-[10px] text-[#5B4B8A] bg-indigo-50/40 p-1.5 rounded-md italic font-semibold leading-relaxed border border-indigo-100/50">
+                                                            {guest.reason}
+                                                        </p>
+
+                                                        <p className="text-[9px] text-[#72787e] font-mono">
+                                                            {isVN ? `Đã dự: ${guest.totalEventsAttended} sự kiện` : `Attended: ${guest.totalEventsAttended} events`}
+                                                        </p>
+                                                    </div>
+
+                                                    <div className="flex items-center justify-between gap-2 pt-2 border-t border-[#EEF1F4]/75">
+                                                        <span className={`text-[9px] font-bold px-2 py-0.5 rounded-full border ${isContacted
+                                                            ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+                                                            : 'bg-orange-50 text-orange-700 border-orange-200'
+                                                            }`}>
+                                                            {isContacted
+                                                                ? (isVN ? 'Đã liên hệ' : 'Contacted')
+                                                                : (isVN ? 'Chưa liên hệ' : 'Not Contacted')}
+                                                        </span>
+
+                                                        <button
+                                                            onClick={() => handleToggleContactStatus(guest.resolvedPersonId, isContacted ? 'DA_LIEN_HE' : 'CHUA_LIEN_HE')}
+                                                            className="text-[10px] text-[#5B4B8A] hover:text-[#4E3E75] font-bold hover:underline cursor-pointer focus:outline-none"
+                                                        >
+                                                            {isContacted
+                                                                ? (isVN ? 'Đánh dấu chưa liên hệ' : 'Mark uncontacted')
+                                                                : (isVN ? 'Đánh dấu đã liên hệ' : 'Mark contacted')}
+                                                        </button>
+                                                    </div>
+                                                </div>
+                                            );
+                                        })}
+                                    </div>
+                                )}
+
+                                {/* Sandbox Pagination */}
+                                {sandboxTotalPages > 1 && (
+                                    <div className="pt-2">
+                                        <PaginationControls
+                                            currentPage={sandboxPage + 1}
+                                            totalPages={sandboxTotalPages}
+                                            totalElements={sandboxTotalElements}
+                                            pageSize={5}
+                                            onPageChange={(p) => handleRunPreview(p - 1)}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                        ) : (
+                            !sandboxLoading && sandboxTags.length > 0 && (
+                                <div className="p-8 text-center text-xs text-[#72787e] border-t border-[#EEF1F4] bg-white rounded-lg select-none">
+                                    {isVN ? 'Không tìm thấy khách mời nào phù hợp với bộ nhãn này.' : 'No matched candidates found for this set of tags.'}
+                                </div>
+                            )
+                        )}
+                    </div>
+                )}
             </div>
 
             {/* Main Content Area */}

@@ -28,6 +28,7 @@ import {
 } from 'lucide-react';
 import { updateAttendeeStatus } from '../lib/identityApi';
 import { fetchDashboardAggregate } from '../lib/dashboardApi';
+import { updateEventTopicTags, fetchPopularTags } from '../lib/recommendationApi';
 import { DashboardAggregate } from '../types';
 
 
@@ -86,6 +87,16 @@ export const EventDetailView: React.FC<EventDetailViewProps> = ({
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
     const [searchTerm, setSearchTerm] = useState('');
+
+    // Editing topic tags states
+    const [isEditingTags, setIsEditingTags] = useState(false);
+    const [editingTagsList, setEditingTagsList] = useState<string[]>([]);
+    const [newTagInput, setNewTagInput] = useState('');
+    const [tagSuggestions, setTagSuggestions] = useState<string[]>([]);
+    const [showSuggestions, setShowSuggestions] = useState(false);
+    const [popularTagsList, setPopularTagsList] = useState<string[]>([]);
+    const [saveLoading, setSaveLoading] = useState(false);
+    const [saveError, setSaveError] = useState<string | null>(null);
 
     // Attendee Inspector Detail State
     const [selectedAttendee, setSelectedAttendee] = useState<AttendeeRow | null>(null);
@@ -199,6 +210,89 @@ export const EventDetailView: React.FC<EventDetailViewProps> = ({
             });
     }, [eventId, language]);
 
+    // Fetch popular tags on demand for autocomplete edit suggestions
+    useEffect(() => {
+        if (isEditingTags && popularTagsList.length === 0) {
+            fetchPopularTags()
+                .then(tags => setPopularTagsList(tags || []))
+                .catch(err => console.error("Failed to load popular tags:", err));
+        }
+    }, [isEditingTags, popularTagsList.length]);
+
+    // Tag autocomplete suggestions logic
+    useEffect(() => {
+        if (!newTagInput.trim()) {
+            setTagSuggestions([]);
+            return;
+        }
+        const query = newTagInput.toLowerCase();
+        const matches = popularTagsList.filter(tag =>
+            tag.toLowerCase().includes(query) &&
+            !editingTagsList.includes(tag)
+        ).slice(0, 10);
+        setTagSuggestions(matches);
+    }, [newTagInput, popularTagsList, editingTagsList]);
+
+    const handleAddEditingTag = (tag: string) => {
+        const cleanTag = tag.trim();
+        if (!cleanTag) return;
+
+        // Deduplicate case-insensitively
+        const hasDuplicate = editingTagsList.some(t => t.toLowerCase() === cleanTag.toLowerCase());
+        if (hasDuplicate) {
+            setNewTagInput('');
+            setShowSuggestions(false);
+            return;
+        }
+
+        if (editingTagsList.length >= 20) {
+            setSaveError(isVN ? 'Tối đa 20 chủ đề (topic tags).' : 'Maximum of 20 topic tags.');
+            return;
+        }
+        setEditingTagsList([...editingTagsList, cleanTag]);
+        setNewTagInput('');
+        setShowSuggestions(false);
+        setSaveError(null);
+    };
+
+    const handleRemoveEditingTag = (tag: string) => {
+        setEditingTagsList(editingTagsList.filter(t => t !== tag));
+        setSaveError(null);
+    };
+
+    const handleTagInputKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
+        if (e.key === 'Enter') {
+            e.preventDefault();
+            handleAddEditingTag(newTagInput);
+        } else if (e.key === 'Escape') {
+            setShowSuggestions(false);
+        }
+    };
+
+    const handleSaveTopicTags = async () => {
+        if (!detail) return;
+        if (editingTagsList.length === 0) {
+            setSaveError(isVN ? 'Danh sách chủ đề không được để trống.' : 'Topic tags cannot be empty.');
+            return;
+        }
+        setSaveLoading(true);
+        setSaveError(null);
+        try {
+            await updateEventTopicTags(detail.eventId, editingTagsList);
+            // Update local state detail
+            setDetail({
+                ...detail,
+                topicTags: editingTagsList
+            });
+            setIsEditingTags(false);
+        } catch (err: any) {
+            console.error("Save error:", err);
+            setSaveError(err.message || 'Lỗi lưu chủ đề.');
+        } finally {
+            setSaveLoading(false);
+        }
+    };
+
     // Fetch Attendee Profile details when selected
     useEffect(() => {
         if (!selectedAttendee) {
@@ -293,17 +387,121 @@ export const EventDetailView: React.FC<EventDetailViewProps> = ({
                         </div>
                     </div>
 
-                    {/* Tags */}
-                    {detail.topicTags && detail.topicTags.length > 0 && (
-                        <div className="flex flex-wrap gap-1.5 max-w-sm justify-start md:justify-end">
-                            {detail.topicTags.map(tag => (
-                                <span key={tag} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#e8f4fd] text-[#1b4b66]">
-                                    <Tag className="w-3 h-3 shrink-0" />
-                                    {tag}
-                                </span>
-                            ))}
-                        </div>
-                    )}
+                    {/* Tags Section with Edit Option */}
+                    <div className="flex flex-col items-start md:items-end gap-2 shrink-0">
+                        {isEditingTags ? (
+                            <div className="bg-[#F8FAFC] border border-[#DCE1E6] rounded-xl p-3 max-w-sm w-full space-y-2 relative text-left">
+                                <div className="flex items-center justify-between gap-2 border-b border-[#EEF1F4] pb-1.5">
+                                    <span className="text-[10px] font-bold text-[#00344c] uppercase tracking-wider">{isVN ? 'Sửa Chủ Đề Gợi Ý' : 'Edit Topic Tags'}</span>
+                                    <button
+                                        className="text-[#72787e] hover:text-[#0f1d28] p-0.5 cursor-pointer"
+                                        onClick={() => {
+                                            setIsEditingTags(false);
+                                            setSaveError(null);
+                                        }}
+                                    >
+                                        <X className="w-3.5 h-3.5" />
+                                    </button>
+                                </div>
+
+                                {saveError && (
+                                    <p className="text-[10px] text-red-500 font-medium">{saveError}</p>
+                                )}
+
+                                <div className="flex flex-wrap gap-1 max-h-[85px] overflow-y-auto border border-[#DCE1E6] p-1.5 rounded bg-white w-full">
+                                    {editingTagsList.map(tag => (
+                                        <span key={tag} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-[#e8f4fd] text-[#1b4b66] text-[9px] font-semibold border border-[#cce4f7]">
+                                            <span>{tag}</span>
+                                            <button
+                                                onClick={() => handleRemoveEditingTag(tag)}
+                                                className="text-[#1b4b66] hover:text-red-500 font-bold ml-0.5 hover:underline focus:outline-none cursor-pointer"
+                                            >
+                                                &times;
+                                            </button>
+                                        </span>
+                                    ))}
+                                    {editingTagsList.length === 0 && (
+                                        <span className="text-[10px] text-[#8e9499] italic">{isVN ? 'Chưa chọn tag nào...' : 'No tags selected...'}</span>
+                                    )}
+                                </div>
+
+                                <div className="relative">
+                                    <input
+                                        type="text"
+                                        placeholder={isVN ? 'Nhập tag và Enter hoặc chọn dưới...' : 'Type tag and Enter...'}
+                                        value={newTagInput}
+                                        onChange={(e) => {
+                                            setNewTagInput(e.target.value);
+                                            setShowSuggestions(true);
+                                        }}
+                                        onFocus={() => setShowSuggestions(true)}
+                                        onKeyDown={handleTagInputKeyDown}
+                                        className="w-full px-2 py-1 text-[11px] border border-[#DCE1E6] rounded focus:outline-none focus:border-[#5B4B8A] bg-white font-medium text-[#252a31]"
+                                    />
+
+                                    {/* Recommendations dropdown */}
+                                    {showSuggestions && tagSuggestions.length > 0 && (
+                                        <div className="absolute left-0 right-0 top-full mt-1 bg-white border border-[#DCE1E6] rounded-md shadow-lg z-30 max-h-[120px] overflow-y-auto divide-y divide-[#EEF1F4]">
+                                            {tagSuggestions.map(tag => (
+                                                <button
+                                                    key={tag}
+                                                    type="button"
+                                                    onClick={() => handleAddEditingTag(tag)}
+                                                    className="w-full text-left px-2.5 py-1 text-[10px] text-[#41474d] hover:bg-[#EEF1F4] hover:text-[#00344c] font-medium cursor-pointer"
+                                                >
+                                                    {tag}
+                                                </button>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="flex justify-end gap-1.5 pt-1.5 border-t border-[#EEF1F4]">
+                                    <button
+                                        onClick={() => {
+                                            setIsEditingTags(false);
+                                            setSaveError(null);
+                                        }}
+                                        className="px-2 py-1 border border-[#DCE1E6] text-[#41474d] hover:bg-gray-50 rounded text-[10px] font-bold cursor-pointer"
+                                    >
+                                        {isVN ? 'Hủy' : 'Cancel'}
+                                    </button>
+                                    <button
+                                        onClick={handleSaveTopicTags}
+                                        disabled={saveLoading}
+                                        className="px-2.5 py-1 bg-[#1b4b66] hover:bg-[#1b4b66]/90 text-white rounded text-[10px] font-bold cursor-pointer flex items-center gap-1"
+                                    >
+                                        {saveLoading && <Loader2 className="w-2.5 h-2.5 animate-spin" />}
+                                        <span>{isVN ? 'Lưu' : 'Save'}</span>
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="flex flex-col items-start md:items-end gap-1.5">
+                                <div className="flex flex-wrap gap-1.5 max-w-sm justify-start md:justify-end">
+                                    {detail.topicTags && detail.topicTags.length > 0 ? (
+                                        detail.topicTags.map(tag => (
+                                            <span key={tag} className="flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[10px] font-semibold bg-[#e8f4fd] text-[#1b4b66] border border-[#cce4f7]">
+                                                <Tag className="w-3 h-3 shrink-0" />
+                                                {tag}
+                                            </span>
+                                        ))
+                                    ) : (
+                                        <span className="text-[10px] text-[#72787e] italic">{isVN ? 'Chưa có chủ đề nào' : 'No topic tags defined'}</span>
+                                    )}
+                                </div>
+                                <button
+                                    onClick={() => {
+                                        setEditingTagsList(detail.topicTags || []);
+                                        setIsEditingTags(true);
+                                    }}
+                                    className="text-[10px] text-[#1b4b66] hover:text-[#1b4b66]/85 font-black hover:underline cursor-pointer flex items-center gap-1 select-none"
+                                >
+                                    <span>{isVN ? '✏️ Sửa chủ đề' : '✏️ Edit topics'}</span>
+                                </button>
+                            </div>
+                        )}
+                    </div>
                 </div>
             </div>
 

@@ -6,6 +6,7 @@ export interface RecommendGuest {
     matchCount: number;
     reason: string;
     totalEventsAttended: number;
+    followUpStatus?: 'DA_LIEN_HE' | 'CHUA_LIEN_HE';
 }
 
 export interface PaginatedRecommendations {
@@ -78,3 +79,30 @@ export async function fetchPopularTags(): Promise<string[]> {
     const json = await response.json();
     return json.data;
 }
+
+/**
+ * Predict guest recommendations for a search preview by tags
+ */
+export async function fetchRecommendationPreview(
+    tags: string[],
+    minOverlap: number,
+    page: number,
+    size: number
+): Promise<PaginatedRecommendations> {
+    const encodedTags = encodeURIComponent(tags.filter(t => t.trim() !== '').join(','));
+    const response = await fetch(
+        `/api/recommendations/preview?tags=${encodedTags}&minOverlapCount=${minOverlap}&page=${page}&size=${size}`,
+        {
+            method: 'GET',
+            credentials: 'include',
+        }
+    );
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch preview recommendations: ${response.statusText}`);
+    }
+
+    const json = await response.json();
+    return json.data || json;
+}
+

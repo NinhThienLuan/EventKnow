@@ -20,4 +20,5 @@ public class RecommendGuestDto {
     private int matchCount;
     private String reason;
     private long totalEventsAttended;
+    private String followUpStatus;
 }
