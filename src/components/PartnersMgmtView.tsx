@@ -40,7 +40,8 @@ import {
   fetchOrganizations,
   fetchOrganizationDetail,
   updateAttendeeStatus,
-  searchAttendees
+  searchAttendees,
+  getPopularTags
 } from '../lib/identityApi';
 import { PaginationControls } from './common/PaginationControls';
 
@@ -80,23 +81,26 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
     return () => clearTimeout(handler);
   }, [searchTerm]);
 
-  const [domainInput, setDomainInput] = useState('');
-  const [debouncedDomainInput, setDebouncedDomainInput] = useState('');
-  useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedDomainInput(domainInput);
-    }, 350);
-    return () => clearTimeout(handler);
-  }, [domainInput]);
+  const [popularTags, setPopularTags] = useState<string[]>([]);
+  const [selectedTags, setSelectedTags] = useState<string[]>([]);
+  const [selectedDomains, setSelectedDomains] = useState<string[]>([]);
+  const [tagSearchText, setTagSearchText] = useState('');
+  const [domainSearchText, setDomainSearchText] = useState('');
+  const [showTagSuggestions, setShowTagSuggestions] = useState(false);
+  const [showDomainSuggestions, setShowDomainSuggestions] = useState(false);
 
-  const [tagInput, setTagInput] = useState('');
-  const [debouncedTagInput, setDebouncedTagInput] = useState('');
+  // Fetch popular tags on mount
   useEffect(() => {
-    const handler = setTimeout(() => {
-      setDebouncedTagInput(tagInput);
-    }, 350);
-    return () => clearTimeout(handler);
-  }, [tagInput]);
+    getPopularTags().then(tags => {
+      const defaultTags = ['AI', 'LLM', 'Machine Learning', 'Big Data', 'IoT', 'Robotics', 'Deep Learning', 'Computer Vision', 'Data Science', 'Blockchain', 'Cloud Computing', 'Cybersecurity'];
+      const combined = Array.from(new Set([...(tags || []), ...defaultTags]));
+      setPopularTags(combined);
+    }).catch(err => {
+      const defaultTags = ['AI', 'LLM', 'Machine Learning', 'Big Data', 'IoT', 'Robotics', 'Deep Learning', 'Computer Vision', 'Data Science', 'Blockchain', 'Cloud Computing', 'Cybersecurity'];
+      setPopularTags(defaultTags);
+      console.error("Failed to load popular tags, using defaults:", err);
+    });
+  }, []);
 
   // Ind Pagination
   const [attendeesPage, setAttendeesPage] = useState(0);
@@ -132,8 +136,10 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
     setStartDate('');
     setEndDate('');
     setDepartmentFilter('ALL');
-    setDomainInput('');
-    setTagInput('');
+    setSelectedDomains([]);
+    setSelectedTags([]);
+    setTagSearchText('');
+    setDomainSearchText('');
     setShowCrossDomainOnly(false);
     setAttendeesPage(0);
   };
@@ -149,8 +155,8 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
     departmentFilter,
     startDate,
     endDate,
-    debouncedDomainInput,
-    debouncedTagInput,
+    selectedDomains,
+    selectedTags,
     showCrossDomainOnly
   ]);
 
@@ -164,9 +170,6 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
   useEffect(() => {
     const loadAttendees = async () => {
       try {
-        const domains = debouncedDomainInput ? debouncedDomainInput.split(',').map(s => s.trim()).filter(Boolean) : undefined;
-        const tags = debouncedTagInput ? debouncedTagInput.split(',').map(s => s.trim()).filter(Boolean) : undefined;
-
         const res = await searchAttendees({
           query: indSearchQuery || undefined,
           role: roleFilter === 'ALL' ? undefined : roleFilter,
@@ -174,8 +177,8 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
           department: departmentFilter === 'ALL' ? undefined : departmentFilter,
           startDate: startDate || undefined,
           endDate: endDate || undefined,
-          researchDomains: domains,
-          expertiseTags: tags,
+          researchDomains: selectedDomains.length > 0 ? selectedDomains : undefined,
+          expertiseTags: selectedTags.length > 0 ? selectedTags : undefined,
           page: attendeesPage,
           size: attendeesSize
         });
@@ -230,8 +233,8 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
     departmentFilter,
     startDate,
     endDate,
-    debouncedDomainInput,
-    debouncedTagInput,
+    selectedDomains,
+    selectedTags,
     showCrossDomainOnly,
     attendeesPage,
     attendeesSize
@@ -660,11 +663,14 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
                     className="w-full px-2.5 py-1.5 bg-[#F8FAFC] border border-[#DCE1E6] rounded-md text-xs font-medium focus:outline-none focus:border-[#00344c] cursor-pointer"
                   >
                     <option value="ALL">{language === 'VN' ? 'Tất cả đơn vị' : 'All Departments'}</option>
-                    <option value="SIHUB">SIHUB</option>
-                    <option value="Văn phòng">Văn phòng</option>
-                    <option value="Trung tâm Thông tin">Trung tâm Thông tin</option>
-                    <option value="Phòng QLKH">Phòng QLKH</option>
-                    <option value="Phòng Hợp tác Quốc tế">Phòng Hợp tác Quốc tế</option>
+                    <option value="Ban Giám đốc">{language === 'VN' ? 'Ban Giám đốc' : 'Board of Directors'}</option>
+                    <option value="Phòng Hành chính - Quản trị">{language === 'VN' ? 'Phòng Hành chính - Quản trị' : 'General Administration'}</option>
+                    <option value="Phòng Kế hoạch - Tài chính">{language === 'VN' ? 'Phòng Kế hoạch - Tài chính' : 'Planning & Finance'}</option>
+                    <option value="Phòng Ươm tạo & Khởi nghiệp">{language === 'VN' ? 'Phòng Ươm tạo & Khởi nghiệp' : 'Incubation & Acceleration'}</option>
+                    <option value="Phòng Hợp tác Quốc tế & Mạng lưới">{language === 'VN' ? 'Phòng Hợp tác Quốc tế & Mạng lưới' : 'Global Network & Partnerships'}</option>
+                    <option value="Phòng Đào tạo & Nâng cao Năng lực">{language === 'VN' ? 'Phòng Đào tạo & Nâng cao Năng lực' : 'Training & Capacity Building'}</option>
+                    <option value="Phòng Truyền thông & Sự kiện">{language === 'VN' ? 'Phòng Truyền thông & Sự kiện' : 'Media, PR & Community'}</option>
+                    <option value="Phòng ĐMST & Chuyển giao Công nghệ">{language === 'VN' ? 'Phòng ĐMST & Chuyển giao Công nghệ' : 'Innovation & Tech Transfer'}</option>
                   </select>
                 </div>
 
@@ -681,28 +687,116 @@ export const PartnersMgmtView: React.FC<PartnersMgmtViewProps> = ({
                   </label>
                 </div>
 
-                {/* Domain Input */}
-                <div className="space-y-1.5 col-span-2">
-                  <span className="text-[#72787e] font-semibold block">{language === 'VN' ? 'Lĩnh vực nghiên cứu (dấu phẩy cách nhau):' : 'Research Domains (comma-separated):'}</span>
-                  <input
-                    type="text"
-                    value={domainInput}
-                    onChange={(e) => setDomainInput(e.target.value)}
-                    placeholder="Ví dụ: AI, LIFE_SCI"
-                    className="w-full px-2.5 py-1.5 bg-[#F8FAFC] border border-[#DCE1E6] rounded-md text-xs font-medium focus:outline-none focus:border-[#00344c]"
-                  />
+                {/* Domain Selector with autocomplete */}
+                <div className="space-y-1.5 col-span-2 relative">
+                  <span className="text-[#72787e] font-semibold block">{language === 'VN' ? 'Lĩnh vực nghiên cứu (Gõ chọn hoặc tự nhập):' : 'Research Domains (Search or Input):'}</span>
+                  <div className="flex flex-wrap gap-1.5 p-1.5 bg-[#F8FAFC] border border-[#DCE1E6] rounded-md min-h-[32px] items-center">
+                    {selectedDomains.map(d => (
+                      <span key={d} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 text-[10px] font-bold border border-blue-200">
+                        {d}
+                        <button type="button" onClick={() => setSelectedDomains(selectedDomains.filter(item => item !== d))} className="text-blue-500 hover:text-blue-800 focus:outline-none cursor-pointer">
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      value={domainSearchText}
+                      onChange={(e) => {
+                        setDomainSearchText(e.target.value);
+                        setShowDomainSuggestions(true);
+                      }}
+                      onFocus={() => setShowDomainSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowDomainSuggestions(false), 250)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && domainSearchText.trim()) {
+                          e.preventDefault();
+                          const val = domainSearchText.trim();
+                          if (!selectedDomains.includes(val)) {
+                            setSelectedDomains([...selectedDomains, val]);
+                          }
+                          setDomainSearchText('');
+                        }
+                      }}
+                      placeholder={language === 'VN' ? 'Gõ và Enter hoặc chọn...' : 'Type & Enter or select...'}
+                      className="flex-1 bg-transparent border-none text-xs focus:outline-none p-0 min-w-[80px]"
+                    />
+                  </div>
+                  {showDomainSuggestions && domainSearchText.trim() && (
+                    <div className="absolute left-0 right-0 mt-1 bg-white border border-[#DCE1E6] rounded-md shadow-lg z-[60] max-h-40 overflow-y-auto">
+                      {['AI', 'LIFE_SCI', 'IOT', 'ROBOTICS', 'BLOCKCHAIN', 'BIG_DATA', 'MED_TECH', 'MAT_SCI']
+                        .filter(d => d.toLowerCase().includes(domainSearchText.toLowerCase()) && !selectedDomains.includes(d))
+                        .map(d => (
+                          <div
+                            key={d}
+                            onMouseDown={() => {
+                              setSelectedDomains([...selectedDomains, d]);
+                              setDomainSearchText('');
+                              setShowDomainSuggestions(false);
+                            }}
+                            className="px-2.5 py-1.5 hover:bg-gray-100 cursor-pointer text-xs"
+                          >
+                            {d}
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
 
-                {/* Tag Input */}
-                <div className="space-y-1.5 col-span-2">
-                  <span className="text-[#72787e] font-semibold block">{language === 'VN' ? 'Kỹ năng / Expertise (dấu phẩy cách nhau):' : 'Expertise Tags (comma-separated):'}</span>
-                  <input
-                    type="text"
-                    value={tagInput}
-                    onChange={(e) => setTagInput(e.target.value)}
-                    placeholder="Ví dụ: Machine Learning, Big Data"
-                    className="w-full px-2.5 py-1.5 bg-[#F8FAFC] border border-[#DCE1E6] rounded-md text-xs font-medium focus:outline-none focus:border-[#00344c]"
-                  />
+                {/* Tag Selector with autocomplete */}
+                <div className="space-y-1.5 col-span-2 relative">
+                  <span className="text-[#72787e] font-semibold block">{language === 'VN' ? 'Kỹ năng / Expertise (Gõ chọn hoặc tự nhập):' : 'Expertise Tags (Search or Input):'}</span>
+                  <div className="flex flex-wrap gap-1.5 p-1.5 bg-[#F8FAFC] border border-[#DCE1E6] rounded-md min-h-[32px] items-center">
+                    {selectedTags.map(t => (
+                      <span key={t} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-700 text-[10px] font-bold border border-indigo-200">
+                        {t}
+                        <button type="button" onClick={() => setSelectedTags(selectedTags.filter(item => item !== t))} className="text-indigo-500 hover:text-indigo-800 focus:outline-none cursor-pointer">
+                          <X className="w-2.5 h-2.5" />
+                        </button>
+                      </span>
+                    ))}
+                    <input
+                      type="text"
+                      value={tagSearchText}
+                      onChange={(e) => {
+                        setTagSearchText(e.target.value);
+                        setShowTagSuggestions(true);
+                      }}
+                      onFocus={() => setShowTagSuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowTagSuggestions(false), 250)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' && tagSearchText.trim()) {
+                          e.preventDefault();
+                          const val = tagSearchText.trim();
+                          if (!selectedTags.includes(val)) {
+                            setSelectedTags([...selectedTags, val]);
+                          }
+                          setTagSearchText('');
+                        }
+                      }}
+                      placeholder={language === 'VN' ? 'Gõ và Enter hoặc chọn...' : 'Type & Enter or select...'}
+                      className="flex-1 bg-transparent border-none text-xs focus:outline-none p-0 min-w-[80px]"
+                    />
+                  </div>
+                  {showTagSuggestions && popularTags.length > 0 && (
+                    <div className="absolute left-0 right-0 mt-1 bg-white border border-[#DCE1E6] rounded-md shadow-lg z-[60] max-h-40 overflow-y-auto">
+                      {popularTags
+                        .filter(t => t.toLowerCase().includes(tagSearchText.toLowerCase()) && !selectedTags.includes(t))
+                        .map(t => (
+                          <div
+                            key={t}
+                            onMouseDown={() => {
+                              setSelectedTags([...selectedTags, t]);
+                              setTagSearchText('');
+                              setShowTagSuggestions(false);
+                            }}
+                            className="px-2.5 py-1.5 hover:bg-gray-100 cursor-pointer text-xs"
+                          >
+                            {t}
+                          </div>
+                        ))}
+                    </div>
+                  )}
                 </div>
               </div>
             )}

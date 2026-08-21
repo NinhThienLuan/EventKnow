@@ -28,9 +28,9 @@ public class EventService {
     public static final String UNCLASSIFIED_DEPARTMENT = "Chưa phân loại";
 
     private static final Set<String> SIHUB_DEPARTMENTS = Set.of(
-            "CNTT", "Kỹ thuật - Công nghệ", "Y tế", "Giáo dục", "AgriTech",
-            "Chế biến chế tạo - Tự động hóa", "Kinh tế - Xã hội và Môi trường", "Khác",
-            "Chưa phân loại");
+            "Ban Giám đốc", "Phòng Hành chính - Quản trị", "Phòng Kế hoạch - Tài chính", "Phòng Ươm tạo & Khởi nghiệp",
+            "Phòng Hợp tác Quốc tế & Mạng lưới", "Phòng Đào tạo & Nâng cao Năng lực", "Phòng Truyền thông & Sự kiện",
+            "Phòng ĐMST & Chuyển giao Công nghệ", "Khác", "Chưa phân loại");
 
     /**
      * Get Source Tree Structure

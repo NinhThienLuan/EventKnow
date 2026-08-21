@@ -29,9 +29,9 @@ import {
 import {
   Department,
   DepartmentMember,
-  MOCK_DEPARTMENTS,
   MOCK_DEPARTMENT_MEMBERS
 } from '../data/hrData';
+import { getDepartments, createDepartment, updateDepartment, deleteDepartment } from '../lib/identityApi';
 
 interface PersonnelMgmtViewProps {
   language: 'VN' | 'EN';
@@ -55,8 +55,32 @@ export const PersonnelMgmtView: React.FC<PersonnelMgmtViewProps> = ({
   }, [initialSubTab]);
 
   // State for Departments
-  const [departments, setDepartments] = useState<Department[]>(MOCK_DEPARTMENTS);
+  const [departments, setDepartments] = useState<Department[]>([]);
   const [deptSearchQuery, setDeptSearchQuery] = useState('');
+
+  const loadDepartments = () => {
+    getDepartments().then(data => {
+      const mapped: Department[] = data.map(d => ({
+        id: d.id || '',
+        code: d.code,
+        name: d.name,
+        folderId: `folder-${d.code.toLowerCase()}`,
+        folderPath: `/Shared Drive/EventKnow/${d.code}`,
+        description: d.nameEn || '',
+        createdDate: d.createdAt ? new Date(d.createdAt).toLocaleDateString('vi-VN') : new Date().toLocaleDateString('vi-VN'),
+        headOfDeptEmail: '',
+        memberCount: 0,
+        fileCount: 0
+      }));
+      setDepartments(mapped);
+    }).catch(err => {
+      console.error("Failed to load backend departments:", err);
+    });
+  };
+
+  useEffect(() => {
+    loadDepartments();
+  }, []);
 
   // Department Modal State (Add/Edit)
   const [isDeptModalOpen, setIsDeptModalOpen] = useState(false);
@@ -96,8 +120,8 @@ export const PersonnelMgmtView: React.FC<PersonnelMgmtViewProps> = ({
   }>({
     fullName: '',
     email: '',
-    primaryDepartmentCode: 'KHCN',
-    allowedDepartmentCodes: ['KHCN'],
+    primaryDepartmentCode: 'SIHUB_TECH_TRANSFER',
+    allowedDepartmentCodes: ['SIHUB_TECH_TRANSFER'],
     deptRole: 'CHUYEN_VIEN',
     isAppAdmin: false,
     notes: ''
@@ -144,43 +168,42 @@ export const PersonnelMgmtView: React.FC<PersonnelMgmtViewProps> = ({
       return;
     }
 
+    const payload = {
+      code: deptForm.code.toUpperCase().trim(),
+      name: deptForm.name.trim(),
+      nameEn: deptForm.description.trim()
+    };
+
     if (editingDept) {
-      setDepartments(prev =>
-        prev.map(d =>
-          d.id === editingDept.id
-            ? {
-                ...d,
-                code: deptForm.code.toUpperCase().trim(),
-                name: deptForm.name.trim(),
-                folderId: deptForm.folderId.trim(),
-                folderPath: deptForm.folderPath.trim(),
-                description: deptForm.description.trim(),
-                headOfDeptEmail: deptForm.headOfDeptEmail.trim()
-              }
-            : d
-        )
-      );
+      updateDepartment(editingDept.id, payload)
+        .then(() => {
+          loadDepartments();
+          setIsDeptModalOpen(false);
+        })
+        .catch(err => {
+          alert(language === 'VN' ? 'Lỗi cập nhật phòng ban: ' + err.message : 'Failed to update department: ' + err.message);
+        });
     } else {
-      const newDeptObj: Department = {
-        id: `dept-${Date.now()}`,
-        code: deptForm.code.toUpperCase().trim(),
-        name: deptForm.name.trim(),
-        folderId: deptForm.folderId.trim() || `folder_${Date.now()}`,
-        folderPath: deptForm.folderPath.trim() || `/Shared Drive/EventKnow/${deptForm.code}`,
-        description: deptForm.description.trim(),
-        createdDate: new Date().toLocaleDateString('vi-VN'),
-        headOfDeptEmail: deptForm.headOfDeptEmail.trim(),
-        memberCount: 1,
-        fileCount: 0
-      };
-      setDepartments([...departments, newDeptObj]);
+      createDepartment(payload)
+        .then(() => {
+          loadDepartments();
+          setIsDeptModalOpen(false);
+        })
+        .catch(err => {
+          alert(language === 'VN' ? 'Lỗi tạo phòng ban: ' + err.message : 'Failed to create department: ' + err.message);
+        });
     }
-    setIsDeptModalOpen(false);
   };
 
   const handleDeleteDepartment = (id: string, code: string) => {
     if (confirm(language === 'VN' ? `Xác nhận xóa phòng ban [${code}]? Mọi liên kết truy cập dữ liệu của thành viên phòng này sẽ bị thu hồi.` : `Confirm delete department [${code}]?`)) {
-      setDepartments(prev => prev.filter(d => d.id !== id));
+      deleteDepartment(id)
+        .then(() => {
+          loadDepartments();
+        })
+        .catch(err => {
+          alert(language === 'VN' ? 'Lỗi xóa phòng ban: ' + err.message : 'Failed to delete department: ' + err.message);
+        });
     }
   };
 
@@ -204,8 +227,8 @@ export const PersonnelMgmtView: React.FC<PersonnelMgmtViewProps> = ({
       setMemberForm({
         fullName: '',
         email: '',
-        primaryDepartmentCode: 'KHCN',
-        allowedDepartmentCodes: ['KHCN'],
+        primaryDepartmentCode: 'SIHUB_TECH_TRANSFER',
+        allowedDepartmentCodes: ['SIHUB_TECH_TRANSFER'],
         deptRole: 'CHUYEN_VIEN',
         isAppAdmin: false,
         notes: ''
@@ -249,15 +272,15 @@ export const PersonnelMgmtView: React.FC<PersonnelMgmtViewProps> = ({
         prev.map(m =>
           m.id === editingMember.id
             ? {
-                ...m,
-                fullName: memberForm.fullName.trim(),
-                email: memberForm.email.trim(),
-                primaryDepartmentCode: memberForm.primaryDepartmentCode,
-                allowedDepartmentCodes: finalAllowedCodes,
-                deptRole: memberForm.deptRole,
-                isAppAdmin: memberForm.isAppAdmin,
-                notes: memberForm.notes.trim()
-              }
+              ...m,
+              fullName: memberForm.fullName.trim(),
+              email: memberForm.email.trim(),
+              primaryDepartmentCode: memberForm.primaryDepartmentCode,
+              allowedDepartmentCodes: finalAllowedCodes,
+              deptRole: memberForm.deptRole,
+              isAppAdmin: memberForm.isAppAdmin,
+              notes: memberForm.notes.trim()
+            }
             : m
         )
       );
@@ -307,8 +330,8 @@ export const PersonnelMgmtView: React.FC<PersonnelMgmtViewProps> = ({
         id: `mem-${Date.now()}`,
         fullName: `Quản trị viên (${newAdminEmail.split('@')[0]})`,
         email: newAdminEmail.trim(),
-        primaryDepartmentCode: 'TCCB',
-        allowedDepartmentCodes: ['KHCN', 'HTQT', 'KHTC', 'CNTT', 'TCCB'],
+        primaryDepartmentCode: 'SIHUB_ADMIN',
+        allowedDepartmentCodes: ['SIHUB_BOD', 'SIHUB_ADMIN', 'SIHUB_FIN', 'SIHUB_INCUBATION', 'SIHUB_PARTNERSHIP', 'SIHUB_TRAINING', 'SIHUB_MEDIA', 'SIHUB_TECH_TRANSFER'],
         deptRole: 'TRUONG_BAN',
         isAppAdmin: true,
         status: 'ACTIVE',
@@ -492,51 +515,45 @@ export const PersonnelMgmtView: React.FC<PersonnelMgmtViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-1.5 w-full">
           <button
             onClick={() => setActiveSubTab('DEPARTMENTS')}
-            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeSubTab === 'DEPARTMENTS'
-                ? 'bg-white text-[#00344c] shadow-xs border border-[#CBD5E1]'
-                : 'text-[#64748B] hover:text-[#0F172A] hover:bg-white/60'
-            }`}
+            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeSubTab === 'DEPARTMENTS'
+              ? 'bg-white text-[#00344c] shadow-xs border border-[#CBD5E1]'
+              : 'text-[#64748B] hover:text-[#0F172A] hover:bg-white/60'
+              }`}
           >
             <Building2 className={`w-4 h-4 shrink-0 ${activeSubTab === 'DEPARTMENTS' ? 'text-[#00344c]' : 'text-[#64748B]'}`} />
             <span className="truncate">{language === 'VN' ? '1. Quản lý Phòng ban' : '1. Departments'}</span>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 ${
-              activeSubTab === 'DEPARTMENTS' ? 'bg-[#00344c] text-white' : 'bg-slate-200 text-slate-700'
-            }`}>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 ${activeSubTab === 'DEPARTMENTS' ? 'bg-[#00344c] text-white' : 'bg-slate-200 text-slate-700'
+              }`}>
               {departments.length}
             </span>
           </button>
 
           <button
             onClick={() => setActiveSubTab('MEMBERS')}
-            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeSubTab === 'MEMBERS'
-                ? 'bg-white text-[#00344c] shadow-xs border border-[#CBD5E1]'
-                : 'text-[#64748B] hover:text-[#0F172A] hover:bg-white/60'
-            }`}
+            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeSubTab === 'MEMBERS'
+              ? 'bg-white text-[#00344c] shadow-xs border border-[#CBD5E1]'
+              : 'text-[#64748B] hover:text-[#0F172A] hover:bg-white/60'
+              }`}
           >
             <Users className={`w-4 h-4 shrink-0 ${activeSubTab === 'MEMBERS' ? 'text-purple-600' : 'text-[#64748B]'}`} />
             <span className="truncate">{language === 'VN' ? '2. Quản lý Thành viên & Phân quyền' : '2. Staff & Permissions'}</span>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 ${
-              activeSubTab === 'MEMBERS' ? 'bg-purple-700 text-white' : 'bg-slate-200 text-slate-700'
-            }`}>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 ${activeSubTab === 'MEMBERS' ? 'bg-purple-700 text-white' : 'bg-slate-200 text-slate-700'
+              }`}>
               {members.length}
             </span>
           </button>
 
           <button
             onClick={() => setActiveSubTab('ADMINS')}
-            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeSubTab === 'ADMINS'
-                ? 'bg-white text-[#00344c] shadow-xs border border-[#CBD5E1]'
-                : 'text-[#64748B] hover:text-[#0F172A] hover:bg-white/60'
-            }`}
+            className={`flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${activeSubTab === 'ADMINS'
+              ? 'bg-white text-[#00344c] shadow-xs border border-[#CBD5E1]'
+              : 'text-[#64748B] hover:text-[#0F172A] hover:bg-white/60'
+              }`}
           >
             <ShieldAlert className={`w-4 h-4 shrink-0 ${activeSubTab === 'ADMINS' ? 'text-rose-600' : 'text-[#64748B]'}`} />
             <span className="truncate">{language === 'VN' ? '3. Quản lý Quyền Admin System' : '3. System Admin Rights'}</span>
-            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 ${
-              activeSubTab === 'ADMINS' ? 'bg-rose-700 text-white' : 'bg-slate-200 text-slate-700'
-            }`}>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-mono font-bold shrink-0 ${activeSubTab === 'ADMINS' ? 'bg-rose-700 text-white' : 'bg-slate-200 text-slate-700'
+              }`}>
               {activeAdmins.length}
             </span>
           </button>
@@ -558,7 +575,7 @@ export const PersonnelMgmtView: React.FC<PersonnelMgmtViewProps> = ({
                 onChange={(e) => setDeptSearchQuery(e.target.value)}
                 placeholder={
                   language === 'VN'
-                    ? 'Tìm phòng ban theo tên, mã (KHCN, HTQT, KHTC...), thư mục Google Drive...'
+                    ? 'Tìm phòng ban theo tên, mã (SIHUB_BOD, SIHUB_FIN...), thư mục Google Drive...'
                     : 'Search departments by name, code, folder ID...'
                 }
                 className="w-full pl-9 pr-4 py-2 text-xs bg-[#F8FAFC] border border-[#DCE1E6] rounded-lg text-[#0f1d28] focus:outline-none focus:border-[#00344c]"
@@ -942,12 +959,12 @@ export const PersonnelMgmtView: React.FC<PersonnelMgmtViewProps> = ({
             <div className="space-y-4 text-xs">
               <div className="grid grid-cols-2 gap-3">
                 <div className="space-y-1">
-                  <label className="font-bold text-[#0f1d28]">{language === 'VN' ? 'Mã phòng ban (Ví dụ: KHCN):' : 'Dept Code:'}</label>
+                  <label className="font-bold text-[#0f1d28]">{language === 'VN' ? 'Mã phòng ban (Ví dụ: SIHUB_FIN):' : 'Dept Code:'}</label>
                   <input
                     type="text"
                     value={deptForm.code}
                     onChange={(e) => setDeptForm({ ...deptForm, code: e.target.value })}
-                    placeholder="KHCN, HTQT, KHTC..."
+                    placeholder="SIHUB_BOD, SIHUB_FIN..."
                     className="w-full px-3 py-2 bg-[#F8FAFC] border border-[#DCE1E6] rounded-lg focus:outline-none focus:border-[#00344c] font-mono uppercase font-bold"
                   />
                 </div>

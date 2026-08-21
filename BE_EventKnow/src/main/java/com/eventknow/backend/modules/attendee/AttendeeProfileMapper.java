@@ -10,7 +10,8 @@ import java.util.UUID;
 
 public class AttendeeProfileMapper {
 
-    private static final String[] TITLE_KEYS = { "chuc_vu", "chuc vu", "position", "title", "vi_tri", "vai_tro" };
+    private static final String[] TITLE_KEYS = { "chuc_vu", "chuc vu", "chuc_danh", "chuc danh", "position", "title",
+            "vi_tri", "vai_tro" };
     private static final String[] COMPANY_KEYS = { "don_vi", "ten_don_vi", "cong_ty", "ten_cong_ty", "company",
             "organization", "to_chuc" };
 

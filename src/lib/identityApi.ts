@@ -279,3 +279,86 @@ export async function searchAttendees(filters: {
     const json = await response.json();
     return json.data || json;
 }
+
+// Fetch popular tags
+export async function getPopularTags(): Promise<string[]> {
+    const response = await fetch('/api/tags/popular', {
+        method: 'GET',
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch popular tags: ${response.statusText}`);
+    }
+
+    const json = await response.json();
+    return json.data || [];
+}
+
+export interface DBDepartment {
+    id?: string;
+    code: string;
+    name: string;
+    nameEn?: string;
+    aliases?: string[];
+    createdAt?: string;
+}
+
+// Fetch all database departments dynamically
+export async function getDepartments(): Promise<DBDepartment[]> {
+    const response = await fetch('/api/departments', {
+        method: 'GET',
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to fetch departments: ${response.statusText}`);
+    }
+
+    return response.json();
+}
+
+// Create new department in the database
+export async function createDepartment(dept: DBDepartment): Promise<DBDepartment> {
+    const response = await fetch('/api/departments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dept),
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to create department: ${response.statusText}`);
+    }
+
+    return response.json();
+}
+
+// Update existing department in the database
+export async function updateDepartment(id: string, dept: DBDepartment): Promise<DBDepartment> {
+    const response = await fetch(`/api/departments/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(dept),
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to update department: ${response.statusText}`);
+    }
+
+    return response.json();
+}
+
+// Delete department from the database
+export async function deleteDepartment(id: string): Promise<void> {
+    const response = await fetch(`/api/departments/${id}`, {
+        method: 'DELETE',
+        credentials: 'include',
+    });
+
+    if (!response.ok) {
+        throw new Error(`Failed to delete department: ${response.statusText}`);
+    }
+}
+

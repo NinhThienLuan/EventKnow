@@ -20,6 +20,7 @@ import { translations } from '../data/translations';
 import { UserProfile } from './GoogleAuthModal';
 import { DriveFileItem } from './GoogleDrivePicker';
 import { uploadExcelFile, ingestDriveFile, fetchIngestionStatus, fetchRecentUploads } from '../lib/ingestApi';
+import { getDepartments, DBDepartment } from '../lib/identityApi';
 
 interface UploadViewProps {
   language: 'VN' | 'EN';
@@ -48,6 +49,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
   const t = translations[language];
   const [activeTab, setActiveTab] = useState<'FILE' | 'DRIVE'>('FILE');
   const [selectedDepartment, setSelectedDepartment] = useState('');
+  const [dbDepartments, setDbDepartments] = useState<DBDepartment[]>([]);
   const [isDragging, setIsDragging] = useState(false);
   const [uploadedFiles, setUploadedFiles] = useState<{ file: File; id: string }[]>([]);
   const [selectedDriveFiles, setSelectedDriveFiles] = useState<DriveFileItem[]>([]);
@@ -111,6 +113,9 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
   useEffect(() => {
     loadRecentUploads();
+    getDepartments().then(setDbDepartments).catch(err => {
+      console.error("Failed to load backend departments:", err);
+    });
   }, []);
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -235,7 +240,7 @@ export const UploadView: React.FC<UploadViewProps> = ({
 
     setIsExtracting(true);
 
-    const deptTag = selectedDepartment ? selectedDepartment.split('-')[0].trim() : 'Auto';
+    const deptTag = selectedDepartment || 'Auto';
 
     try {
       for (const item of filesToProcess) {
@@ -496,11 +501,9 @@ export const UploadView: React.FC<UploadViewProps> = ({
                     className="w-full pl-3 pr-8 py-2 text-xs font-body bg-white border border-[#DCE1E6] rounded-lg text-[#0f1d28] focus:outline-none focus:border-[#00344c] appearance-none cursor-pointer shadow-2xs font-medium"
                   >
                     <option value="">-- Chọn phòng ban (Bắt buộc) --</option>
-                    <option value="HR - Human Resources">HR - Human Resources</option>
-                    <option value="Finance - Tài chính">Finance - Tài chính</option>
-                    <option value="Marketing - Truyền thông">Marketing - Truyền thông</option>
-                    <option value="R&D - Research & Development">R&D - Research & Development</option>
-                    <option value="IT - Information Technology">IT - Information Technology</option>
+                    {dbDepartments.map(d => (
+                      <option key={d.code} value={d.name}>{d.name}</option>
+                    ))}
                   </select>
                   <ChevronDown className="w-4 h-4 text-[#72787e] absolute right-2.5 top-2.5 pointer-events-none" />
                 </div>
@@ -510,8 +513,8 @@ export const UploadView: React.FC<UploadViewProps> = ({
                 onClick={handleStartExtraction}
                 disabled={isExtracting || !selectedDepartment}
                 className={`flex items-center justify-center gap-2 px-6 py-2.5 bg-[#00344c] text-white font-semibold text-xs rounded-lg hover:bg-[#1b4b66] transition-all shadow-xs cursor-pointer ${(isExtracting || !selectedDepartment)
-                    ? 'opacity-70 cursor-not-allowed'
-                    : 'hover:scale-[1.01] active:scale-[0.99]'
+                  ? 'opacity-70 cursor-not-allowed'
+                  : 'hover:scale-[1.01] active:scale-[0.99]'
                   }`}
               >
                 {isExtracting ? (
