@@ -13,7 +13,8 @@ public class ExcelHeaderMapper {
     public record HeaderMappingResult(
             int headerRowIndex,
             Map<String, Integer> standardMapping,
-            Map<Integer, String> unmappedHeaders) {
+            Map<Integer, String> unmappedHeaders,
+            Map<String, Map<String, Object>> compoundMappings) {
     }
 
     // Normalized matches templates (using case-insensitive lowercase matching after
@@ -37,6 +38,8 @@ public class ExcelHeaderMapper {
         FIELD_EXACT_TERMS.put("academicTitle", List.of("hoc ham", "hoc vi", "academic title", "degree"));
         FIELD_EXACT_TERMS.put("researchFields",
                 List.of("linh vuc", "chuyen mon", "chuyen nganh", "nghien cuu", "expertise", "research"));
+        FIELD_EXACT_TERMS.put("identity-url", List.of("linkedin", "github", "orcid", "portfolio", "cv", "website",
+                "trang web", "trang web ca nhan", "profile link", "profile"));
 
         FIELD_PATTERNS.put("fullName", List.of(
                 Pattern.compile(
@@ -59,6 +62,9 @@ public class ExcelHeaderMapper {
                 Pattern.compile(".*(hoc\\s+ham|hoc\\s+vi|academic\\s+title|degree).*")));
         FIELD_PATTERNS.put("researchFields", List.of(
                 Pattern.compile(".*(linh\\s+vuc|chuyen\\s+mon|chuyen\\s+nganh|nghien\\s+cuu|expertise|research).*")));
+        FIELD_PATTERNS.put("identity-url", List.of(
+                Pattern.compile(
+                        ".*(linkedin|github|orcid|portfolio|cv|website|trang\\s*web|trang\\s*web\\s*ca\\s*nhan|profile\\s*link|profile).*")));
     }
 
     /**
@@ -70,6 +76,7 @@ public class ExcelHeaderMapper {
         int maxScore = -1;
         Map<String, Integer> bestStandardMapping = new HashMap<>();
         Map<Integer, String> bestUnmappedHeaders = new LinkedHashMap<>();
+        Map<String, Map<String, Object>> bestCompoundMappings = new LinkedHashMap<>();
 
         DataFormatter dataFormatter = new DataFormatter();
         int rowsToScan = Math.min(lastRowNum + 1, 10);
@@ -83,6 +90,7 @@ public class ExcelHeaderMapper {
             int score = 0;
             Map<String, Integer> standardMapping = new HashMap<>();
             Map<Integer, String> unmappedHeaders = new LinkedHashMap<>();
+            Map<String, Map<String, Object>> compoundMappings = new LinkedHashMap<>();
             int maxCol = row.getLastCellNum();
 
             // Store clean headers
@@ -100,6 +108,34 @@ public class ExcelHeaderMapper {
             }
 
             Set<Integer> mappedCols = new HashSet<>();
+
+            // Step 0: Compound mappings detection
+            for (Map.Entry<Integer, String> colEntry : colIndexToText.entrySet()) {
+                int c = colEntry.getKey();
+                String rawHeaderText = colEntry.getValue();
+                String normalizedHeader = colIndexToNormalized.get(c);
+                if (rawHeaderText != null && normalizedHeader != null) {
+                    boolean hasDelimiter = rawHeaderText.contains("/") || rawHeaderText.contains(" - ")
+                            || rawHeaderText.contains("&");
+                    if (hasDelimiter) {
+                        Set<String> matchedFields = new HashSet<>();
+                        int matchCount = countMatchingFields(rawHeaderText, normalizedHeader, matchedFields);
+                        if (matchCount >= 2) {
+                            Map<String, Object> colMapping = new LinkedHashMap<>();
+                            colMapping.put("headerText", rawHeaderText);
+                            colMapping.put("targetFields", List.of("academicTitle", "position"));
+                            colMapping.put("extractionStrategy", "DICTIONARY_SPLIT");
+                            colMapping.put("dictionarySource", "academic_title_alias");
+                            colMapping.put("fallbackField", "position");
+                            colMapping.put("flag_for_review", true);
+
+                            compoundMappings.put(String.valueOf(c), colMapping);
+                            mappedCols.add(c);
+                            score += 2; // Matches count towards row scoring
+                        }
+                    }
+                }
+            }
 
             // Step 1: Exact matches (priority)
             for (Map.Entry<String, List<String>> entry : FIELD_EXACT_TERMS.entrySet()) {
@@ -176,6 +212,7 @@ public class ExcelHeaderMapper {
                 bestHeaderRowIndex = r;
                 bestStandardMapping = standardMapping;
                 bestUnmappedHeaders = unmappedHeaders;
+                bestCompoundMappings = compoundMappings;
             }
         }
 
@@ -186,7 +223,120 @@ public class ExcelHeaderMapper {
             // We keep the indices of split names in standardMapping
         }
 
-        return new HeaderMappingResult(bestHeaderRowIndex, bestStandardMapping, bestUnmappedHeaders);
+        // Post-processing: Sample-Check URL Guard
+        if (maxScore > 0) {
+            int startSampleRow = bestHeaderRowIndex + 1;
+            int endSampleRow = Math.min(sheet.getLastRowNum() + 1, bestHeaderRowIndex + 6);
+
+            Map<Integer, List<String>> colToSamples = new HashMap<>();
+            for (int r = startSampleRow; r < endSampleRow; r++) {
+                Row row = sheet.getRow(r);
+                if (row == null)
+                    continue;
+                for (int c = 0; c < row.getLastCellNum(); c++) {
+                    Cell cell = row.getCell(c);
+                    if (cell != null) {
+                        String cellVal = dataFormatter.formatCellValue(cell).trim();
+                        if (!cellVal.isEmpty()) {
+                            colToSamples.computeIfAbsent(c, k -> new ArrayList<>()).add(cellVal);
+                        }
+                    }
+                }
+            }
+
+            Map<String, Integer> tempStandard = new HashMap<>(bestStandardMapping);
+            List<String> coreFields = List.of("fullName", "lastNameSplit", "firstNameSplit", "academicTitle",
+                    "position", "organization", "email", "phone", "researchFields");
+
+            for (String fieldName : coreFields) {
+                Integer colIdx = tempStandard.get(fieldName);
+                if (colIdx != null) {
+                    List<String> samples = colToSamples.get(colIdx);
+                    if (samples != null && samples.stream().anyMatch(v -> v.matches("^https?://.*"))) {
+                        tempStandard.remove(fieldName);
+                        Row headerRow = sheet.getRow(bestHeaderRowIndex);
+                        Cell headerCell = headerRow != null ? headerRow.getCell(colIdx) : null;
+                        String headerText = headerCell != null ? dataFormatter.formatCellValue(headerCell).trim()
+                                : "Column_" + colIdx;
+                        bestUnmappedHeaders.put(colIdx, headerText);
+                    }
+                }
+            }
+
+            Integer identityUrlCol = tempStandard.get("identity-url");
+            if (identityUrlCol != null) {
+                List<String> samples = colToSamples.get(identityUrlCol);
+                boolean containsUrl = samples != null && samples.stream().anyMatch(v -> v.matches("^https?://.*"));
+                if (containsUrl) {
+                    Row headerRow = sheet.getRow(bestHeaderRowIndex);
+                    Cell headerCell = headerRow != null ? headerRow.getCell(identityUrlCol) : null;
+                    String headerText = headerCell != null ? dataFormatter.formatCellValue(headerCell).trim() : "";
+                    String normHeader = normalizeHeader(headerText);
+                    boolean isPersonalIdentity = normHeader.contains("linkedin") || normHeader.contains("github") ||
+                            normHeader.contains("orcid") || normHeader.contains("portfolio") ||
+                            normHeader.contains("cv") || normHeader.contains("trang web") ||
+                            normHeader.contains("web ca nhan") || normHeader.contains("website");
+                    if (!isPersonalIdentity) {
+                        tempStandard.remove("identity-url");
+                        bestUnmappedHeaders.put(identityUrlCol,
+                                !headerText.isEmpty() ? headerText : "Column_" + identityUrlCol);
+                    }
+                }
+            } else {
+                Map<Integer, String> copyUnmapped = new LinkedHashMap<>(bestUnmappedHeaders);
+                for (Map.Entry<Integer, String> entry : copyUnmapped.entrySet()) {
+                    int colIdx = entry.getKey();
+                    String headerText = entry.getValue();
+                    List<String> samples = colToSamples.get(colIdx);
+                    boolean containsUrl = samples != null && samples.stream().anyMatch(v -> v.matches("^https?://.*"));
+                    if (containsUrl) {
+                        String normHeader = normalizeHeader(headerText);
+                        boolean isPersonalIdentity = normHeader.contains("linkedin") || normHeader.contains("github") ||
+                                normHeader.contains("orcid") || normHeader.contains("portfolio") ||
+                                normHeader.contains("cv") || normHeader.contains("trang web") ||
+                                normHeader.contains("web ca nhan") || normHeader.contains("website");
+                        if (isPersonalIdentity) {
+                            tempStandard.put("identity-url", colIdx);
+                            bestUnmappedHeaders.remove(colIdx);
+                        }
+                    }
+                }
+            }
+            bestStandardMapping = tempStandard;
+        }
+
+        return new HeaderMappingResult(bestHeaderRowIndex, bestStandardMapping, bestUnmappedHeaders,
+                bestCompoundMappings);
+    }
+
+    private int countMatchingFields(String rawHeaderText, String normalizedHeader, Set<String> matchedFields) {
+        int count = 0;
+        for (Map.Entry<String, List<String>> entry : FIELD_EXACT_TERMS.entrySet()) {
+            String field = entry.getKey();
+            if (field.equals("identity-url"))
+                continue;
+            if (entry.getValue().contains(normalizedHeader)) {
+                if (matchedFields != null)
+                    matchedFields.add(field);
+                count++;
+            }
+        }
+        for (Map.Entry<String, List<Pattern>> entry : FIELD_PATTERNS.entrySet()) {
+            String field = entry.getKey();
+            if (field.equals("identity-url"))
+                continue;
+            if (matchedFields != null && matchedFields.contains(field))
+                continue;
+            for (Pattern pattern : entry.getValue()) {
+                if (pattern.matcher(normalizedHeader).matches()) {
+                    if (matchedFields != null)
+                        matchedFields.add(field);
+                    count++;
+                    break;
+                }
+            }
+        }
+        return count;
     }
 
     public static String normalizeHeader(String header) {

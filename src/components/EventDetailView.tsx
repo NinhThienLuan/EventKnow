@@ -789,12 +789,30 @@ export const EventDetailView: React.FC<EventDetailViewProps> = ({
                                                                                 'raw_event_id',
                                                                                 'is_deleted_in_source'
                                                                             ].includes(key))
-                                                                            .map(([key, val]) => (
-                                                                                <div key={key} className="bg-[#EEF1F4]/40 p-2 rounded border border-[#DCE1E6]/50 space-y-0.5">
-                                                                                    <p className="text-[9px] font-bold text-[#72787e] uppercase font-mono tracking-wide leading-tight">{key}</p>
-                                                                                    <p className="text-[11px] font-semibold text-[#0f1d28] whitespace-pre-wrap leading-snug">{String(val || '')}</p>
-                                                                                </div>
-                                                                            ))
+                                                                            .map(([key, val]) => {
+                                                                                if (val === null || val === undefined) return null;
+                                                                                return (
+                                                                                    <div key={key} className="bg-[#EEF1F4]/40 p-2 rounded border border-[#DCE1E6]/50 space-y-0.5">
+                                                                                        <p className="text-[9px] font-bold text-[#72787e] uppercase font-mono tracking-wide leading-tight">
+                                                                                            {key.replace(/_/g, ' ')}
+                                                                                        </p>
+                                                                                        {typeof val === 'object' ? (
+                                                                                            <div className="space-y-1 pl-2 mt-1 border-l-2 border-[#DCE1E6]">
+                                                                                                {Object.entries(val).map(([subKey, subVal]) => (
+                                                                                                    <div key={subKey} className="text-[10px] text-[#41474d] leading-snug break-all">
+                                                                                                        <span className="font-bold text-[#00344c]">{subKey}: </span>
+                                                                                                        <span>{typeof subVal === 'object' ? JSON.stringify(subVal) : String(subVal)}</span>
+                                                                                                    </div>
+                                                                                                ))}
+                                                                                            </div>
+                                                                                        ) : (
+                                                                                            <p className="text-[11px] font-semibold text-[#0f1d28] whitespace-pre-wrap leading-snug">
+                                                                                                {String(val)}
+                                                                                            </p>
+                                                                                        )}
+                                                                                    </div>
+                                                                                );
+                                                                            })
                                                                         }
                                                                     </div>
                                                                 </div>

@@ -41,6 +41,34 @@ public class ExtractionResultProcessor {
         RawEventEntity rawEvent = rawEventRepository.findById(rawEventId)
                 .orElseThrow(() -> new IllegalArgumentException("RawEvent not found for ID: " + rawEventId));
 
+        Map<String, Object> headerOuter = rawEvent.getRawHeaderMap();
+        Map<String, Object> sheetMap = null;
+        if (headerOuter != null) {
+            String sheetName = rawEvent.getSheetName();
+            if (sheetName != null && headerOuter.containsKey(sheetName)) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> casted = (Map<String, Object>) headerOuter.get(sheetName);
+                sheetMap = casted;
+            } else if (!headerOuter.isEmpty()) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> casted = (Map<String, Object>) headerOuter.values().iterator().next();
+                sheetMap = casted;
+            }
+        }
+
+        Set<String> unmappedHeaderNames = new HashSet<>();
+        if (sheetMap != null) {
+            @SuppressWarnings("unchecked")
+            Map<String, Object> unmappedHeaders = (Map<String, Object>) sheetMap.get("unmappedHeaders");
+            if (unmappedHeaders != null) {
+                for (Object headerTextObj : unmappedHeaders.values()) {
+                    if (headerTextObj != null) {
+                        unmappedHeaderNames.add(headerTextObj.toString().trim());
+                    }
+                }
+            }
+        }
+
         Map<String, OrganizationEntity> localResolvedOrgs = new HashMap<>(); // key: rawName, value: Entity
         Map<String, AttendeeProfileEntity> localResolvedAttendees = new HashMap<>(); // key: email or
                                                                                      // normalizedName_phone
@@ -135,6 +163,8 @@ public class ExtractionResultProcessor {
 
                 Map<String, Object> profileAttributes = new HashMap<>();
                 Map<String, Object> attendanceAttributes = new HashMap<>();
+                Map<String, Object> surveyResponses = new LinkedHashMap<>();
+
                 if (pEnt.dynamicAttributes() != null) {
                     for (Map.Entry<String, Object> entry : pEnt.dynamicAttributesMap().entrySet()) {
                         String key = entry.getKey();
@@ -142,12 +172,31 @@ public class ExtractionResultProcessor {
                         if ("ai_labeled".equalsIgnoreCase(key)) {
                             continue;
                         }
-                        if (isProfileAttribute(key)) {
-                            profileAttributes.put(key, val);
+
+                        String trimmedKey = key.trim();
+                        if ("flag_for_review".equalsIgnoreCase(trimmedKey)) {
+                            Object boolVal = val;
+                            if (val instanceof String) {
+                                boolVal = Boolean.valueOf((String) val);
+                            }
+                            profileAttributes.put("flag_for_review", boolVal);
+                            attendanceAttributes.put("flag_for_review", boolVal);
+                        } else if ("review_reason".equalsIgnoreCase(trimmedKey)) {
+                            profileAttributes.put("review_reason", val);
+                            attendanceAttributes.put("review_reason", val);
+                        } else if (unmappedHeaderNames.contains(trimmedKey)) {
+                            surveyResponses.put(trimmedKey, val);
+                        } else if (isProfileAttribute(trimmedKey)) {
+                            String standardizedKey = standardizeProfileKeyName(trimmedKey);
+                            profileAttributes.put(standardizedKey, val);
                         } else {
-                            attendanceAttributes.put(key, val);
+                            surveyResponses.put(trimmedKey, val);
                         }
                     }
+                }
+
+                if (!surveyResponses.isEmpty()) {
+                    attendanceAttributes.put("survey_responses", surveyResponses);
                 }
 
                 if (personEntity == null) {
@@ -449,5 +498,24 @@ public class ExtractionResultProcessor {
         cleaned = cleaned.replaceAll("\\s*@\\s*", "@");
         cleaned = cleaned.replaceAll("\\s*\\.\\s*", ".");
         return cleaned;
+    }
+
+    private String standardizeProfileKeyName(String key) {
+        if (key == null)
+            return "";
+        String norm = normalizeString(key).toLowerCase();
+        if (norm.contains("linkedin"))
+            return "LinkedIn Profile";
+        if (norm.contains("github"))
+            return "GitHub";
+        if (norm.contains("orcid"))
+            return "ORCID";
+        if (norm.contains("portfolio"))
+            return "Portfolio";
+        if (norm.contains("website") || norm.contains("trang web"))
+            return "Personal Website";
+        if (norm.contains("cv"))
+            return "CV";
+        return key;
     }
 }

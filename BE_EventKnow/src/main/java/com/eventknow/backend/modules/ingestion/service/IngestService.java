@@ -17,6 +17,17 @@ import java.time.LocalDate;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import com.eventknow.backend.modules.ingestion.normalizer.ExcelHeaderMapper;
+import org.apache.poi.ss.usermodel.Cell;
+import org.apache.poi.ss.usermodel.CellType;
+import org.apache.poi.ss.usermodel.DateUtil;
+import org.apache.poi.ss.usermodel.Row;
+import org.apache.poi.ss.usermodel.Sheet;
+import org.apache.poi.ss.usermodel.Workbook;
+import org.apache.poi.xssf.usermodel.XSSFWorkbook;
+import org.apache.poi.ss.usermodel.DataFormatter;
+import java.io.ByteArrayInputStream;
+import java.time.format.DateTimeFormatter;
 
 @Service
 @RequiredArgsConstructor
@@ -131,10 +142,24 @@ public class IngestService {
                 }
             }
 
+            if (isDateFallback) {
+                LocalDate minDate = findMinTimestampInSheetBytes(fileBytes, sheet.sheetName(),
+                        sheet.headerMapping().headerRowIndex());
+                if (minDate != null) {
+                    sheetEventDate = minDate;
+                    isDateFallback = false;
+                }
+            }
+
             UUID eventId = eventResolutionService.resolveCanonicalEvent(sheetEventName, sheetEventDate, isDateFallback,
                     department);
             com.eventknow.backend.model.entity.Core.EventEntity eventEntity = eventRepository.findById(eventId)
                     .orElse(null);
+
+            if (eventEntity != null && !isDateFallback) {
+                eventEntity.setEventDate(sheetEventDate);
+                eventEntity = eventRepository.save(eventEntity);
+            }
 
             // Create individual RawEventEntity for this sheet
             RawEventEntity rawEvent = RawEventEntity.builder()
@@ -163,6 +188,7 @@ public class IngestService {
                     Map<String, Object> sheetMap = new LinkedHashMap<>();
                     sheetMap.put("headerRowIndex", sheet.headerMapping().headerRowIndex());
                     sheetMap.put("standardMapping", sheet.headerMapping().standardMapping());
+                    sheetMap.put("compoundMappings", sheet.headerMapping().compoundMappings());
 
                     Map<String, String> unmappedStr = new LinkedHashMap<>();
                     if (sheet.headerMapping().unmappedHeaders() != null) {
@@ -486,5 +512,139 @@ public class IngestService {
     public List<RawEventEntity> getRecentUploads() {
         return rawEventRepository.findAll(org.springframework.data.domain.Sort
                 .by(org.springframework.data.domain.Sort.Direction.DESC, "createdAt"));
+    }
+
+    private static final List<DateTimeFormatter> DATE_FORMATTERS = List.of(
+            DateTimeFormatter.ISO_LOCAL_DATE_TIME,
+            DateTimeFormatter.ISO_LOCAL_DATE,
+            DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm:ss"),
+            DateTimeFormatter.ofPattern("dd/MM/yyyy HH:mm"),
+            DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+            DateTimeFormatter.ofPattern("d/M/yyyy HH:mm:ss"),
+            DateTimeFormatter.ofPattern("d/M/yyyy HH:mm"),
+            DateTimeFormatter.ofPattern("d/M/yyyy"),
+            DateTimeFormatter.ofPattern("yyyy/MM/dd HH:mm:ss"),
+            DateTimeFormatter.ofPattern("yyyy/MM/dd"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm:ss"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm"),
+            DateTimeFormatter.ofPattern("yyyy-MM-dd"));
+
+    private LocalDate tryParseDate(Cell cell) {
+        if (cell == null) {
+            return null;
+        }
+        try {
+            if (cell.getCellType() == CellType.NUMERIC && DateUtil.isCellDateFormatted(cell)) {
+                return cell.getLocalDateTimeCellValue().toLocalDate();
+            }
+            if (cell.getCellType() == CellType.STRING) {
+                String val = cell.getStringCellValue().trim();
+                if (val.isEmpty()) {
+                    return null;
+                }
+                try {
+                    return DateTimeFormatter.ISO_DATE_TIME.parse(val, LocalDate::from);
+                } catch (Exception e1) {
+                    // Fall through to other formatters
+                }
+
+                for (DateTimeFormatter formatter : DATE_FORMATTERS) {
+                    try {
+                        return LocalDate.parse(val, formatter);
+                    } catch (Exception ignored1) {
+                        try {
+                            return formatter.parse(val, LocalDate::from);
+                        } catch (Exception ignored2) {
+                            // Try another
+                        }
+                    }
+                }
+
+                Pattern pattern = Pattern
+                        .compile("(\\d{4})[-_/](\\d{2})[-_/](\\d{2})|(\\d{2})[-_/](\\d{2})[-_/](\\d{4})");
+                Matcher matcher = pattern.matcher(val);
+                if (matcher.find()) {
+                    try {
+                        if (matcher.group(1) != null) {
+                            int year = Integer.parseInt(matcher.group(1));
+                            int month = Integer.parseInt(matcher.group(2));
+                            int day = Integer.parseInt(matcher.group(3));
+                            return LocalDate.of(year, month, day);
+                        } else {
+                            int day = Integer.parseInt(matcher.group(4));
+                            int month = Integer.parseInt(matcher.group(5));
+                            int year = Integer.parseInt(matcher.group(6));
+                            return LocalDate.of(year, month, day);
+                        }
+                    } catch (Exception ignored) {
+                        // ignore
+                    }
+                }
+            }
+        } catch (Exception ignored) {
+            // master catch
+        }
+        return null;
+    }
+
+    private LocalDate findMinTimestampInSheetBytes(byte[] fileBytes, String sheetName, int headerRowIndex) {
+        try (Workbook workbook = new XSSFWorkbook(new ByteArrayInputStream(fileBytes))) {
+            Sheet sheet = workbook.getSheet(sheetName);
+            if (sheet == null) {
+                return null;
+            }
+            Row headerRow = sheet.getRow(headerRowIndex);
+            if (headerRow == null) {
+                return null;
+            }
+
+            int targetColIdx = -1;
+            int maxCol = headerRow.getLastCellNum();
+            Pattern TIMESTAMP_HEADER_PATTERN = Pattern.compile(
+                    "(?i)^(dau thoi gian|timestamp|thoi gian|ngay dang ky|thoi gian dang ky|thoi gian gui|submit time)$");
+
+            DataFormatter formatter = new DataFormatter();
+            for (int c = 0; c < maxCol; c++) {
+                Cell cell = headerRow.getCell(c);
+                if (cell != null) {
+                    String headerVal = formatter.formatCellValue(cell).trim();
+                    if (!headerVal.isEmpty()) {
+                        String norm = ExcelHeaderMapper.normalizeHeader(headerVal);
+                        if (TIMESTAMP_HEADER_PATTERN.matcher(norm).matches()) {
+                            targetColIdx = c;
+                            break;
+                        }
+                    }
+                }
+            }
+
+            if (targetColIdx == -1) {
+                return null;
+            }
+
+            LocalDate minDate = null;
+            int lastRowNum = sheet.getLastRowNum();
+            for (int r = headerRowIndex + 1; r <= lastRowNum; r++) {
+                Row row = sheet.getRow(r);
+                if (row == null) {
+                    continue;
+                }
+                Cell cell = row.getCell(targetColIdx);
+                if (cell == null || cell.getCellType() == CellType.BLANK) {
+                    continue;
+                }
+
+                LocalDate date = tryParseDate(cell);
+                if (date != null) {
+                    if (minDate == null || date.isBefore(minDate)) {
+                        minDate = date;
+                    }
+                }
+            }
+            return minDate;
+        } catch (Exception e) {
+            log.warn("Failed to find min timestamp in sheet {}: {}", sheetName, e.getMessage());
+        }
+        return null;
     }
 }

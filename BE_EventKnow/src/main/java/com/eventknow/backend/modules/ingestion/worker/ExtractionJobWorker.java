@@ -106,6 +106,12 @@ public class ExtractionJobWorker {
                 unmappedHeaders = Collections.emptyMap();
             }
 
+            @SuppressWarnings("unchecked")
+            Map<String, Object> compoundMappings = (Map<String, Object>) headerMap.get("compoundMappings");
+            if (compoundMappings == null) {
+                compoundMappings = Collections.emptyMap();
+            }
+
             // 3. Extract java-side core fields
             List<PreExtractedRow> preExtractedRows = new ArrayList<>();
 
@@ -149,13 +155,13 @@ public class ExtractionJobWorker {
                 if (organization != null)
                     organization = organization.trim();
 
-                // Position
+                // Position (standard)
                 Integer posIdx = getIndex(standardMapping, "position");
                 String position = getCellValue(headers, rowData, posIdx);
                 if (position != null)
                     position = position.trim();
 
-                // Academic Title
+                // Academic Title (standard)
                 Integer academicTitleIdx = getIndex(standardMapping, "academicTitle");
                 String academicTitleRaw = getCellValue(headers, rowData, academicTitleIdx);
                 if (academicTitleRaw != null)
@@ -175,6 +181,109 @@ public class ExtractionJobWorker {
                             .toList();
                 }
 
+                // Rule 2 Extraction: Compound Headers
+                String compoundAcademicTitleRaw = null;
+                List<String> compoundAcademicTitleNormalized = Collections.emptyList();
+                String compoundPosition = null;
+                boolean isCompoundProcessed = false;
+                boolean flagForReview = false;
+                String reviewReason = null;
+
+                for (Map.Entry<String, Object> entry : compoundMappings.entrySet()) {
+                    String colIndexStr = entry.getKey();
+                    @SuppressWarnings("unchecked")
+                    Map<String, Object> colMap = (Map<String, Object>) entry.getValue();
+                    if (colMap == null)
+                        continue;
+
+                    int colIdx = -1;
+                    try {
+                        colIdx = Integer.parseInt(colIndexStr);
+                    } catch (NumberFormatException ignored) {
+                    }
+
+                    if (colIdx >= 0 && colIdx < headers.length) {
+                        String colName = headers[colIdx];
+                        String cellVal = rowData.get(colName);
+                        if (cellVal != null) {
+                            cellVal = cellVal.trim();
+                        }
+
+                        if (cellVal != null && !cellVal.isEmpty()) {
+                            isCompoundProcessed = true;
+                            // 1. Regex Longest-Match Scanner based on Dictionary:
+                            java.util.regex.Pattern aliasPattern = java.util.regex.Pattern.compile(
+                                    "(?i)\\b(GS\\.?\\s*TS|PGS\\.?\\s*TS|TS\\.?\\s*KS|GS|PGS|TS|ThS|KS|CN)\\.?(?=\\s|$|/|-|,)");
+                            java.util.regex.Matcher matcher = aliasPattern.matcher(cellVal);
+                            String extractedTitle = null;
+                            if (matcher.find()) {
+                                extractedTitle = matcher.group().trim();
+                            }
+
+                            // 2. Position remainder after replacement
+                            String posRemainder = cellVal
+                                    .replaceAll(
+                                            "(?i)\\b(GS\\.?\\s*TS|PGS\\.?\\s*TS|TS\\.?\\s*KS|GS|PGS|TS|ThS|KS|CN)\\.?",
+                                            "")
+                                    .replaceAll("[/\\-&,]", " ")
+                                    .replaceAll("\\s+", " ")
+                                    .trim();
+                            if (posRemainder.isEmpty()) {
+                                posRemainder = null;
+                            }
+
+                            if (extractedTitle != null) {
+                                compoundAcademicTitleRaw = extractedTitle;
+                                compoundAcademicTitleNormalized = titleNormalizer.normalize(extractedTitle);
+                                compoundPosition = posRemainder;
+                            } else {
+                                // B3: Fallback entire cell value to position
+                                compoundPosition = cellVal
+                                        .replaceAll("[/\\-&,]", " ")
+                                        .replaceAll("\\s+", " ")
+                                        .trim();
+                                if (compoundPosition.isEmpty()) {
+                                    compoundPosition = null;
+                                }
+                            }
+
+                            // B4: Suspicious position check
+                            if (compoundPosition != null && !compoundPosition.isEmpty()) {
+                                String normPos = com.eventknow.backend.modules.ingestion.service.ExtractionResultProcessor
+                                        .normalizeString(compoundPosition).toLowerCase();
+                                boolean hasPositionKeyword = normPos.contains("truong") || normPos.contains("pho") ||
+                                        normPos.contains("giam doc") || normPos.contains("chuyen vien") ||
+                                        normPos.contains("ky su") || normPos.contains("co van") ||
+                                        normPos.contains("dien gia") || normPos.contains("khach moi") ||
+                                        normPos.contains("giang vien") || normPos.contains("giao su") ||
+                                        normPos.contains("tien si") || normPos.contains("thac si") ||
+                                        normPos.contains("cum") || normPos.contains("chu tich") ||
+                                        normPos.contains("nhan vien") || normPos.contains("can bo");
+                                if (!hasPositionKeyword) {
+                                    flagForReview = true;
+                                    reviewReason = "Suspicious position remainder after compound split";
+                                }
+                            }
+                        }
+                    }
+                }
+
+                if (isCompoundProcessed) {
+                    flagForReview = true; // Rule 3: default true for Rule 2 mappings
+                    if (reviewReason == null) {
+                        reviewReason = "Compound header split executed";
+                    }
+                }
+
+                // Merge compound results
+                if (position == null || position.isEmpty()) {
+                    position = compoundPosition;
+                }
+                if (academicTitleRaw == null || academicTitleRaw.isEmpty()) {
+                    academicTitleRaw = compoundAcademicTitleRaw;
+                    academicTitleNormalized = compoundAcademicTitleNormalized;
+                }
+
                 // Dynamic Attributes
                 List<IngestionModels.DynamicAttributeDto> dynamicAttributes = new ArrayList<>();
                 for (Map.Entry<String, Object> entry : unmappedHeaders.entrySet()) {
@@ -190,6 +299,47 @@ public class ExtractionJobWorker {
                             dynamicAttributes
                                     .add(new IngestionModels.DynamicAttributeDto(colName, cellVal.trim()));
                         }
+                    }
+                }
+
+                // Rule 1 Extraction & Key Standardization
+                Integer identityUrlIdx = getIndex(standardMapping, "identity-url");
+                if (identityUrlIdx != null) {
+                    String identityUrlVal = getCellValue(headers, rowData, identityUrlIdx);
+                    if (identityUrlVal != null && !identityUrlVal.isEmpty()) {
+                        flagForReview = true; // Rule 3: default true for Rule 1 mappings
+                        if (reviewReason == null) {
+                            reviewReason = "Identity URL mapped";
+                        } else {
+                            reviewReason += "; Identity URL mapped";
+                        }
+
+                        String headerName = headers[identityUrlIdx];
+                        String normHeader = com.eventknow.backend.modules.ingestion.normalizer.ExcelHeaderMapper
+                                .normalizeHeader(headerName);
+                        String standardizedKey = headerName;
+                        if (normHeader.contains("linkedin"))
+                            standardizedKey = "LinkedIn Profile";
+                        else if (normHeader.contains("github"))
+                            standardizedKey = "GitHub";
+                        else if (normHeader.contains("orcid"))
+                            standardizedKey = "ORCID";
+                        else if (normHeader.contains("portfolio"))
+                            standardizedKey = "Portfolio";
+                        else if (normHeader.contains("website") || normHeader.contains("trang web"))
+                            standardizedKey = "Personal Website";
+                        else if (normHeader.contains("cv"))
+                            standardizedKey = "CV";
+
+                        dynamicAttributes.add(new IngestionModels.DynamicAttributeDto(standardizedKey, identityUrlVal));
+                    }
+                }
+
+                // Inject flag_for_review if required
+                if (flagForReview) {
+                    dynamicAttributes.add(new IngestionModels.DynamicAttributeDto("flag_for_review", "true"));
+                    if (reviewReason != null) {
+                        dynamicAttributes.add(new IngestionModels.DynamicAttributeDto("review_reason", reviewReason));
                     }
                 }
 

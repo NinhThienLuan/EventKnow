@@ -74,9 +74,6 @@ public class IngestServiceIntegrationTest {
         private com.eventknow.backend.modules.organization.OrganizationController organizationController;
 
         @Autowired
-        private com.eventknow.backend.modules.recommendation.RecommendationController recommendationController;
-
-        @Autowired
         private com.eventknow.backend.modules.dashboard.DashboardController dashboardController;
 
         @Autowired
@@ -104,6 +101,10 @@ public class IngestServiceIntegrationTest {
                 academicTitleAliasRepository.save(AcademicTitleAliasEntity.builder()
                                 .rawAlias("GS")
                                 .normalizedTag(AcademicTitleAliasEntity.NormalizedTag.GS)
+                                .build());
+                academicTitleAliasRepository.save(AcademicTitleAliasEntity.builder()
+                                .rawAlias("PGS")
+                                .normalizedTag(AcademicTitleAliasEntity.NormalizedTag.PGS)
                                 .build());
                 academicTitleAliasRepository.save(AcademicTitleAliasEntity.builder()
                                 .rawAlias("TS")
@@ -517,7 +518,6 @@ public class IngestServiceIntegrationTest {
 
                         ByteArrayOutputStream bos = new ByteArrayOutputStream();
                         workbook.write(bos);
-                        byte[] bytes = bos.toByteArray();
 
                         ExcelHeaderMapper mapper = new ExcelHeaderMapper();
                         ExcelHeaderMapper.HeaderMappingResult result = mapper.detectHeaderMapping(sheet);
@@ -738,5 +738,402 @@ public class IngestServiceIntegrationTest {
                 // Phần index
                 var metaF = ingestService.parseEventMetaOptimized("TechFest.xlsx", "Sheet1", 2, 0);
                 assertEquals("TechFest - Phần 1", metaF.name());
+        }
+
+        @Test
+        public void testRule1AndURLGuard() throws IOException {
+                byte[] mockExcel;
+                try (Workbook workbook = new XSSFWorkbook()) {
+                        Sheet sheet = workbook.createSheet("Danh sách");
+                        Row header = sheet.createRow(0);
+                        String[] heads = { "Họ tên", "Email", "Tài liệu đính kèm" };
+                        for (int i = 0; i < heads.length; i++) {
+                                header.createCell(i).setCellValue(heads[i]);
+                        }
+
+                        // Column 2 ("Tài liệu đính kèm") contains URLs
+                        // Since name is "Tài liệu đính kèm", it has no identity keywords (LinkedIn,
+                        // GitHub, etc.)
+                        // So Sample-Check URL Guard should prevent it from mapping to identity-url
+                        // standard mapping.
+                        for (int r = 1; r <= 5; r++) {
+                                Row row = sheet.createRow(r);
+                                row.createCell(0).setCellValue("User URL " + r);
+                                row.createCell(1).setCellValue("userurl" + r + "@example.com");
+                                row.createCell(2).setCellValue("https://example.com/attachment_" + r + ".pdf");
+                        }
+
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        workbook.write(bos);
+                        mockExcel = bos.toByteArray();
+                }
+
+                EnrichedTaxonomyDto lr1 = new EnrichedTaxonomyDto(0, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
+                EnrichedTaxonomyDto lr2 = new EnrichedTaxonomyDto(1, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
+                EnrichedTaxonomyDto lr3 = new EnrichedTaxonomyDto(2, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
+                EnrichedTaxonomyDto lr4 = new EnrichedTaxonomyDto(3, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
+                EnrichedTaxonomyDto lr5 = new EnrichedTaxonomyDto(4, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
+                Mockito.when(llmProviderClient.extractTaxonomy(any()))
+                                .thenReturn(List.of(lr1, lr2, lr3, lr4, lr5));
+
+                orgRepositoryCheckReset();
+
+                UUID rawEventId = ingestService.initiateIngestion(
+                                mockExcel,
+                                "Test_URL_Guard.xlsx",
+                                null,
+                                "IT",
+                                "Test URL Guard",
+                                LocalDate.of(2026, 10, 25),
+                                "admin@eventknow.com",
+                                null);
+
+                assertNotNull(rawEventId);
+                jobWorker.pollAndProcessJobs();
+                semanticLabelingScheduler.labelPendingAttendees();
+
+                RawEventEntity completedRaw = rawEventRepository.findById(rawEventId).orElseThrow();
+                assertEquals(RawEventEntity.IngestionStatus.DONE, completedRaw.getIngestionStatus());
+
+                // Verify standard mapping does not map "Tài liệu đính kèm" to identity-url
+                @SuppressWarnings("unchecked")
+                Map<String, Object> sheetMap = (Map<String, Object>) completedRaw.getRawHeaderMap().get("Danh sách");
+                assertNotNull(sheetMap);
+                @SuppressWarnings("unchecked")
+                Map<String, Object> standardMapping = (Map<String, Object>) sheetMap.get("standardMapping");
+                assertFalse(standardMapping.containsKey("identity-url"));
+
+                // Verify "Tài liệu đính kèm" exists in unmappedHeaders
+                @SuppressWarnings("unchecked")
+                Map<String, Object> unmapped = (Map<String, Object>) sheetMap.get("unmappedHeaders");
+                assertTrue(unmapped.containsValue("Tài liệu đính kèm"));
+
+                // Verify routed to survey_responses inside EventAttendanceEntity's snapshotData
+                List<EventAttendanceEntity> attendances = eventAttendanceRepository.findAll();
+                assertFalse(attendances.isEmpty());
+                for (EventAttendanceEntity att : attendances) {
+                        Map<String, Object> snapshot = att.getSnapshotData();
+                        assertNotNull(snapshot);
+                        assertTrue(snapshot.containsKey("survey_responses"));
+                        @SuppressWarnings("unchecked")
+                        Map<String, Object> survey = (Map<String, Object>) snapshot.get("survey_responses");
+                        assertTrue(survey.containsKey("Tài liệu đính kèm"));
+                        assertTrue(survey.get("Tài liệu đính kèm").toString()
+                                        .startsWith("https://example.com/attachment_"));
+                }
+        }
+
+        @Test
+        public void testRule2CompoundSplit() throws IOException {
+                byte[] mockExcel;
+                try (Workbook workbook = new XSSFWorkbook()) {
+                        Sheet sheet = workbook.createSheet("Danh sách");
+                        Row header = sheet.createRow(0);
+                        String[] heads = { "Họ tên", "Email", "Học hàm/vị/Chức vụ" };
+                        for (int i = 0; i < heads.length; i++) {
+                                header.createCell(i).setCellValue(heads[i]);
+                        }
+
+                        // Column 2 ("Học hàm/vị/Chức vụ") has delimiter "/" and matches multiple core
+                        // fields
+                        Row r1 = sheet.createRow(1);
+                        r1.createCell(0).setCellValue("Nguyễn Văn An");
+                        r1.createCell(1).setCellValue("an.nguyen@example.com");
+                        r1.createCell(2).setCellValue("PGS.TS / Trưởng phòng");
+
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        workbook.write(bos);
+                        mockExcel = bos.toByteArray();
+                }
+
+                EnrichedTaxonomyDto lr1 = new EnrichedTaxonomyDto(0, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
+                Mockito.when(llmProviderClient.extractTaxonomy(any()))
+                                .thenReturn(List.of(lr1));
+
+                orgRepositoryCheckReset();
+
+                UUID rawEventId = ingestService.initiateIngestion(
+                                mockExcel,
+                                "Test_Compound_Split.xlsx",
+                                null,
+                                "IT",
+                                "Test Compound Split",
+                                LocalDate.of(2026, 10, 25),
+                                "admin@eventknow.com",
+                                null);
+
+                assertNotNull(rawEventId);
+                jobWorker.pollAndProcessJobs();
+                semanticLabelingScheduler.labelPendingAttendees();
+
+                RawEventEntity completedRaw = rawEventRepository.findById(rawEventId).orElseThrow();
+                assertEquals(RawEventEntity.IngestionStatus.DONE, completedRaw.getIngestionStatus());
+
+                // Find the attendee profile for Nguyễn Văn An
+                List<AttendeeProfileEntity> profiles = attendeeProfileRepository.findAll();
+                AttendeeProfileEntity an = profiles.stream()
+                                .filter(a -> "Nguyễn Văn An".equals(a.getFullName()))
+                                .findFirst().orElseThrow();
+
+                // Academic Title: mapped to academicTitle ("PGS.TS") and normalized ("PGS",
+                // "TS")
+                assertEquals("PGS.TS", an.getAcademicTitleRaw());
+                assertTrue(an.getAcademicTitleNormalized().contains("PGS"));
+                assertTrue(an.getAcademicTitleNormalized().contains("TS"));
+
+                // Position: "Trưởng phòng"
+                List<EventAttendanceEntity> attendances = eventAttendanceRepository.findAll();
+                EventAttendanceEntity att = attendances.stream()
+                                .filter(a -> a.getAttendeeProfile().getId().equals(an.getId()))
+                                .findFirst().orElseThrow();
+                assertEquals("Trưởng phòng", att.getSnapshotData().get("title_at_event"));
+        }
+
+        @Test
+        public void testRule2Fallback() throws IOException {
+                byte[] mockExcel;
+                try (Workbook workbook = new XSSFWorkbook()) {
+                        Sheet sheet = workbook.createSheet("Danh sách");
+                        Row header = sheet.createRow(0);
+                        String[] heads = { "Họ tên", "Email", "Học hàm/vị/Chức vụ" };
+                        for (int i = 0; i < heads.length; i++) {
+                                header.createCell(i).setCellValue(heads[i]);
+                        }
+
+                        // Cell does not contain academic title alias, should fallback to position only
+                        Row r1 = sheet.createRow(1);
+                        r1.createCell(0).setCellValue("Trần Thị Bình");
+                        r1.createCell(1).setCellValue("binh.tran@example.com");
+                        r1.createCell(2).setCellValue("Chánh văn phòng / Phụ trách đối ngoại");
+
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        workbook.write(bos);
+                        mockExcel = bos.toByteArray();
+                }
+
+                EnrichedTaxonomyDto lr1 = new EnrichedTaxonomyDto(0, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
+                Mockito.when(llmProviderClient.extractTaxonomy(any()))
+                                .thenReturn(List.of(lr1));
+
+                orgRepositoryCheckReset();
+
+                UUID rawEventId = ingestService.initiateIngestion(
+                                mockExcel,
+                                "Test_Compound_Fallback.xlsx",
+                                null,
+                                "IT",
+                                "Test Compound Fallback",
+                                LocalDate.of(2026, 10, 25),
+                                "admin@eventknow.com",
+                                null);
+
+                assertNotNull(rawEventId);
+                jobWorker.pollAndProcessJobs();
+                semanticLabelingScheduler.labelPendingAttendees();
+
+                RawEventEntity completedRaw = rawEventRepository.findById(rawEventId).orElseThrow();
+                assertEquals(RawEventEntity.IngestionStatus.DONE, completedRaw.getIngestionStatus());
+
+                AttendeeProfileEntity binh = attendeeProfileRepository.findAll().stream()
+                                .filter(a -> "Trần Thị Bình".equals(a.getFullName()))
+                                .findFirst().orElseThrow();
+
+                // No academic title extracted
+                assertNull(binh.getAcademicTitleRaw());
+                assertTrue(binh.getAcademicTitleNormalized().isEmpty());
+
+                // Mapped entire cell value to position remainder
+                List<EventAttendanceEntity> attendances = eventAttendanceRepository.findAll();
+                EventAttendanceEntity att = attendances.stream()
+                                .filter(a -> a.getAttendeeProfile().getId().equals(binh.getId()))
+                                .findFirst().orElseThrow();
+                assertEquals("Chánh văn phòng Phụ trách đối ngoại", att.getSnapshotData().get("title_at_event"));
+        }
+
+        @Test
+        public void testRule2SanityCheck() throws IOException {
+                byte[] mockExcel;
+                try (Workbook workbook = new XSSFWorkbook()) {
+                        Sheet sheet = workbook.createSheet("Danh sách");
+                        Row header = sheet.createRow(0);
+                        String[] heads = { "Họ tên", "Email", "Học hàm/vị/Chức vụ" };
+                        for (int i = 0; i < heads.length; i++) {
+                                header.createCell(i).setCellValue(heads[i]);
+                        }
+
+                        // Cell remainder has suspicious data (unrelated text. e.g., "HUST HUST" after
+                        // splitting "PGS.TS / HUST HUST")
+                        Row r1 = sheet.createRow(1);
+                        r1.createCell(0).setCellValue("Lê Văn Công");
+                        r1.createCell(1).setCellValue("cong.le@example.com");
+                        r1.createCell(2).setCellValue("PGS.TS / HUST HUST");
+
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        workbook.write(bos);
+                        mockExcel = bos.toByteArray();
+                }
+
+                EnrichedTaxonomyDto lr1 = new EnrichedTaxonomyDto(0, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
+                Mockito.when(llmProviderClient.extractTaxonomy(any()))
+                                .thenReturn(List.of(lr1));
+
+                orgRepositoryCheckReset();
+
+                UUID rawEventId = ingestService.initiateIngestion(
+                                mockExcel,
+                                "Test_Compound_Sanity.xlsx",
+                                null,
+                                "IT",
+                                "Test Compound Sanity",
+                                LocalDate.of(2026, 10, 25),
+                                "admin@eventknow.com",
+                                null);
+
+                assertNotNull(rawEventId);
+                jobWorker.pollAndProcessJobs();
+                semanticLabelingScheduler.labelPendingAttendees();
+
+                RawEventEntity completedRaw = rawEventRepository.findById(rawEventId).orElseThrow();
+                assertEquals(RawEventEntity.IngestionStatus.DONE, completedRaw.getIngestionStatus());
+
+                AttendeeProfileEntity cong = attendeeProfileRepository.findAll().stream()
+                                .filter(a -> "Lê Văn Công".equals(a.getFullName()))
+                                .findFirst().orElseThrow();
+
+                // Verify flag_for_review is true
+                assertEquals(Boolean.TRUE, cong.getDynamicAttributes().get("flag_for_review"));
+                assertEquals("Suspicious position remainder after compound split",
+                                cong.getDynamicAttributes().get("review_reason"));
+
+                List<EventAttendanceEntity> attendances = eventAttendanceRepository.findAll();
+                EventAttendanceEntity att = attendances.stream()
+                                .filter(a -> a.getAttendeeProfile().getId().equals(cong.getId()))
+                                .findFirst().orElseThrow();
+                assertEquals(Boolean.TRUE, att.getSnapshotData().get("flag_for_review"));
+                assertEquals("Suspicious position remainder after compound split",
+                                att.getSnapshotData().get("review_reason"));
+        }
+
+        @Test
+        public void testRule3FlaggingAndAdministrativeVerification() throws IOException {
+                byte[] mockExcel;
+                try (Workbook workbook = new XSSFWorkbook()) {
+                        Sheet sheet = workbook.createSheet("Danh sách");
+                        Row header = sheet.createRow(0);
+                        String[] heads = { "Họ tên", "Email", "LinkedIn cá nhân" };
+                        for (int i = 0; i < heads.length; i++) {
+                                header.createCell(i).setCellValue(heads[i]);
+                        }
+
+                        // Column 2 matches identity-url LinkedIn Profile, should be flagged
+                        Row r1 = sheet.createRow(1);
+                        r1.createCell(0).setCellValue("Phạm Văn Dũng");
+                        r1.createCell(1).setCellValue("dung.pham@example.com");
+                        r1.createCell(2).setCellValue("https://linkedin.com/in/dung-pham-123");
+
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        workbook.write(bos);
+                        mockExcel = bos.toByteArray();
+                }
+
+                EnrichedTaxonomyDto lr1 = new EnrichedTaxonomyDto(0, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
+                Mockito.when(llmProviderClient.extractTaxonomy(any()))
+                                .thenReturn(List.of(lr1));
+
+                orgRepositoryCheckReset();
+
+                UUID rawEventId = ingestService.initiateIngestion(
+                                mockExcel,
+                                "Test_Rule3_Flagging.xlsx",
+                                null,
+                                "IT",
+                                "Test Rule 3 Flagging",
+                                LocalDate.of(2026, 10, 25),
+                                "admin@eventknow.com",
+                                null);
+
+                assertNotNull(rawEventId);
+                jobWorker.pollAndProcessJobs();
+                semanticLabelingScheduler.labelPendingAttendees();
+
+                RawEventEntity completedRaw = rawEventRepository.findById(rawEventId).orElseThrow();
+                assertEquals(RawEventEntity.IngestionStatus.DONE, completedRaw.getIngestionStatus());
+
+                AttendeeProfileEntity dung = attendeeProfileRepository.findAll().stream()
+                                .filter(a -> "Phạm Văn Dũng".equals(a.getFullName()))
+                                .findFirst().orElseThrow();
+
+                // Key standardization: "LinkedIn cá nhân" is standardized to "LinkedIn Profile"
+                assertEquals("https://linkedin.com/in/dung-pham-123",
+                                dung.getDynamicAttributes().get("LinkedIn Profile"));
+
+                // Flagged for review
+                assertEquals(Boolean.TRUE, dung.getDynamicAttributes().get("flag_for_review"));
+                assertEquals("Identity URL mapped", dung.getDynamicAttributes().get("review_reason"));
+
+                List<EventAttendanceEntity> attendances = eventAttendanceRepository.findAll();
+                EventAttendanceEntity att = attendances.stream()
+                                .filter(a -> a.getAttendeeProfile().getId().equals(dung.getId()))
+                                .findFirst().orElseThrow();
+                assertEquals(Boolean.TRUE, att.getSnapshotData().get("flag_for_review"));
+                assertEquals("Identity URL mapped", att.getSnapshotData().get("review_reason"));
+        }
+
+        @Test
+        public void testMinTimestampExtraction() throws IOException {
+                byte[] mockExcel;
+                try (Workbook workbook = new XSSFWorkbook()) {
+                        Sheet sheet = workbook.createSheet("Danh sách");
+                        Row header = sheet.createRow(0);
+                        String[] heads = { "Họ tên", "Email", "Dấu thời gian" };
+                        for (int i = 0; i < heads.length; i++) {
+                                header.createCell(i).setCellValue(heads[i]);
+                        }
+
+                        Row r1 = sheet.createRow(1);
+                        r1.createCell(0).setCellValue("Nguyễn Văn An");
+                        r1.createCell(1).setCellValue("an.nguyen@example.com");
+                        r1.createCell(2).setCellValue("2023-05-22 15:13:21");
+
+                        Row r2 = sheet.createRow(2);
+                        r2.createCell(0).setCellValue("Trần Văn Bình");
+                        r2.createCell(1).setCellValue("binh.tran@example.com");
+                        r2.createCell(2).setCellValue("2023-05-25 09:12:00");
+
+                        ByteArrayOutputStream bos = new ByteArrayOutputStream();
+                        workbook.write(bos);
+                        mockExcel = bos.toByteArray();
+                }
+
+                EnrichedTaxonomyDto lr1 = new EnrichedTaxonomyDto(0, List.of("AI_ML"), List.of("NLP"), "SPEAKER");
+                Mockito.when(llmProviderClient.extractTaxonomy(any()))
+                                .thenReturn(List.of(lr1));
+
+                orgRepositoryCheckReset();
+
+                UUID rawEventId = ingestService.initiateIngestion(
+                                mockExcel,
+                                "Test_Min_Timestamp.xlsx",
+                                null,
+                                "IT",
+                                "Test Min Timestamp",
+                                null, // Manual date is null, forcing fallback to now() unless MIN(timestamp) is
+                                      // parsed
+                                "admin@eventknow.com",
+                                null);
+
+                assertNotNull(rawEventId);
+                jobWorker.pollAndProcessJobs();
+                semanticLabelingScheduler.labelPendingAttendees();
+
+                RawEventEntity completedRaw = rawEventRepository.findById(rawEventId).orElseThrow();
+                assertEquals(RawEventEntity.IngestionStatus.DONE, completedRaw.getIngestionStatus());
+
+                // The EventDate of the RawEventEntity and EventEntity should be 2023-05-22
+                assertEquals(LocalDate.of(2023, 5, 22), completedRaw.getEventDate());
+                EventEntity canonicalEvent = eventRepository.findAll().stream()
+                                .filter(e -> "Test Min Timestamp".equals(e.getEventName()))
+                                .findFirst().orElseThrow();
+                assertEquals(LocalDate.of(2023, 5, 22), canonicalEvent.getEventDate());
         }
 }
